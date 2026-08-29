@@ -1,7 +1,6 @@
 import { SignJWT, jwtVerify } from "jose";
 import { cookies } from "next/headers";
 import { env } from "./env";
-import { prisma } from "./db";
 import type { AdminRole } from "@prisma/client";
 
 export const SESSION_COOKIE = "pe_session";
@@ -66,6 +65,7 @@ export async function requireSession(): Promise<Session> {
     const { HttpError } = await import("./http");
     throw new HttpError(401, "Unauthorized");
   }
+  const { prisma } = await import("./db");
   const admin = await prisma.admin.findUnique({ where: { id: BigInt(session.adminId) } });
   if (!admin || admin.status !== "active") {
     const { HttpError } = await import("./http");

@@ -123,6 +123,7 @@ export async function getMemberSnapshot(memberId: bigint) {
     earnedTotal,
     redeemedTotal,
     expiredTotal,
+    unpostedExpired,
     tier,
     nextExpiration,
   };
@@ -392,12 +393,22 @@ export async function redeemPoints(
   return getMemberSnapshot(memberId);
 }
 
-export async function expireDueLots(now = new Date()): Promise<number> {
+export async function expireDueLots(opts?: {
+  now?: Date;
+  memberId?: bigint;
+  createdByAdminId?: number;
+}): Promise<{ lotsPosted: number; pointsExpired: number }> {
+  const now = opts?.now ?? new Date();
   const due = await prisma.pointLot.findMany({
-    where: { remainingAmount: { gt: 0 }, expiresAt: { lte: now } },
+    where: {
+      remainingAmount: { gt: 0 },
+      expiresAt: { lte: now },
+      ...(opts?.memberId ? { memberId: opts.memberId } : {}),
+    },
     orderBy: { id: "asc" },
   });
-  let posted = 0;
+  let lotsPosted = 0;
+  let pointsExpired = 0;
   for (const lot of due) {
     await prisma.$transaction(async (tx) => {
       const locked = await tx.$queryRaw<{ id: bigint; remaining_amount: number; expires_at: Date }[]>(
@@ -418,6 +429,7 @@ export async function expireDueLots(now = new Date()): Promise<number> {
           amount: remaining,
           occurredAt: lot.expiresAt,
           note: "Points expired",
+          createdByAdminId: opts?.createdByAdminId ? BigInt(opts.createdByAdminId) : null,
         },
       });
       await tx.lotConsumption.create({
@@ -427,8 +439,16 @@ export async function expireDueLots(now = new Date()): Promise<number> {
         where: { id: lot.id },
         data: { remainingAmount: 0 },
       });
-      posted += 1;
+      lotsPosted += 1;
+      pointsExpired += remaining;
     });
   }
-  return posted;
+  return { lotsPosted, pointsExpired };
+}
+
+export async function expireMemberLots(memberId: bigint, session: Session) {
+  await getMemberOrThrow(memberId);
+  const result = await expireDueLots({ memberId, createdByAdminId: session.adminId });
+  const member = await getMemberSnapshot(memberId);
+  return { ...result, member };
 }

@@ -1,7 +1,7 @@
 import { env } from "@/lib/env";
 import { json } from "@/lib/http";
 import { boot } from "@/lib/boot";
-import { getProgramSettings, settingsSourceLabel } from "@/lib/settings";
+import { getProgramSettings, settingsSourceLabelForEnv } from "@/lib/settings";
 
 export const dynamic = "force-dynamic";
 
@@ -31,7 +31,7 @@ export async function GET() {
       gitSha: e.gitSha,
       deployedAt: e.deployedAt,
       publicUrl: e.publicUrl,
-      settingsSource: settingsSourceLabel(),
+      settingsSource: settingsSourceLabelForEnv(),
       settings,
     },
     { headers: corsHeaders() },

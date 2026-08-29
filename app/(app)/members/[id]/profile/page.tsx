@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import { ProfileForm } from "./profile-form";
+import { ExpireNow } from "./expire-now";
 import { getMemberSnapshot } from "@/lib/members";
 import { formatDate, formatExpirePhrase } from "@/lib/expiration";
 
@@ -48,6 +49,7 @@ export default async function ProfilePage({ params }: { params: Promise<{ id: st
       <section className="rounded-xl border border-line bg-cream p-5">
         <h3 className="text-[13px] font-semibold uppercase tracking-wide text-muted">Next expiration</h3>
         <p className="mt-2 text-[16px]">{nextCopy}</p>
+        <ExpireNow memberId={member.id} unpostedExpired={member.unpostedExpired} />
       </section>
     </div>
   );

@@ -15,6 +15,7 @@ export type MemberSnapshot = {
   earnedTotal: number;
   redeemedTotal: number;
   expiredTotal: number;
+  unpostedExpired: number;
   tier: {
     name: string;
     qualifyingPoints: number;

@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  serverExternalPackages: ["@prisma/client", "bcryptjs", "@aws-sdk/client-s3", "node-cron"],
+  serverExternalPackages: ["@prisma/client", "bcryptjs", "node-cron"],
   webpack: (config, { isServer }) => {
     if (!isServer) {
       config.resolve.fallback = {

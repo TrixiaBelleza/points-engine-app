@@ -2,11 +2,11 @@
 
 **Status:** Draft for review  
 **Date:** 2026-08-26  
-**Audience:** Product + engineering (admin web app; MySQL for members/ledger, AWS S3 for program settings)
+**Audience:** Product + engineering (admin web app; MySQL for members/ledger, JSON file for program settings)
 
 This spec is written so you can change decisions without rewriting the whole document. Anything marked **[Open]** is a product call. Chat decisions already locked are in the **Your decision** column.
 
-Two public instances ship: **production** and **staging**. ClouderaAI does **not** read S3; it `GET`s `/api/meta` on the production URL (§10.1).
+Two public instances ship: **production** and **staging**. ClouderaAI does **not** read the settings file; it `GET`s `/api/meta` on the production URL (§10.1).
 
 ---
 
@@ -16,7 +16,7 @@ An **admin-only** loyalty app. Staff create members, log activities that award p
 
 Members do **not** have their own login in v1. Staff sign in on `/login`. There is **no sign-up**. The first **superadmin** is seeded; further admins are created on the **Admins** page.
 
-**Program settings** (expiration interval, timezone, tier rules) are stored as **JSON in AWS S3**, not in MySQL. MySQL holds members, lots, ledger, and admin users.
+**Program settings** (expiration interval, timezone, tier rules) are stored as **JSON on the instance filesystem**, not in MySQL. MySQL holds members, lots, ledger, and admin users.
 
 ### Example
 
@@ -38,7 +38,7 @@ With a **1-year** expiration interval, those 200 points expire at **27 Aug 2027,
 - **Tiers** (Bronze / Silver / Gold / Platinum by default), based on points **earned** in a configurable lookback period. Rules are edited in Settings.
 - **Login** (email + password). No public sign-up.
 - **Admins** page: a superadmin or an admin creates other admins and sets their passwords.
-- **Settings:** the signed-in user can change **their own** password. Saving expiration/tier rules writes the S3 JSON for this environment.
+- **Settings:** the signed-in user can change **their own** password. Saving expiration/tier rules writes the program-settings JSON for this environment.
 - Two internet-facing instances (**production** and **staging**) plus public `GET /api/meta` (version/tag + current program settings).
 
 ### Non-goals (v1)
@@ -51,7 +51,7 @@ With a **1-year** expiration interval, those 200 points expire at **27 Aug 2027,
 - Automated earning from receipts or CSV import.
 - Public sign-up, member login, magic link, Google, or self-serve forgot-password email.
 - Chrome extension, Jira plugin, ClouderaAI UI, or generating `.robot` files (those consume this app later).
-- ClouderaAI (or any client) calling AWS S3 directly.
+- ClouderaAI (or any client) reading the program-settings file (or any object store) directly.
 
 ---
 
@@ -91,13 +91,13 @@ Answer these in place. Implementation should follow this list, not buried commen
 | Q13 | “Last 3 months” meaning? | Rolling: `occurred_at >= now - 3 months` | Rolling 3 months |
 | Q14 | Next expiration grouping? | Calendar day in app timezone; sum remaining expiring that local midnight | Calendar day (always 00:00 local) |
 | Q39 | Expire at same clock time vs end of day? | **End of anniversary day** = next local calendar day at **00:00:00**. Earn 26 Aug 2026 14:14:32 + 1 year → **27 Aug 2027 00:00:00** | End of day (00:00 next day) |
-| Q15 | Timezone? | `Asia/Manila` (in S3 program settings) | Asia/Manila |
+| Q15 | Timezone? | `Asia/Manila` (in program settings JSON) | Asia/Manila |
 | Q16 | Interval change rewrite existing lots? | **No.** Snapshotted at earn time | No |
 | Q17 | Member-level expiration override? | No | No |
 | Q18 | Create Activity from the members list? | Only on the member history page | History page |
 | Q19 | History row types? | Earn + redeem + expire (no void) | Earn / Redeem / Expire |
 | Q20 | Soft-delete members? | Deactivate | Deactivate |
-| Q21 | Timezone if admin travels? | Always app timezone from S3 settings | App timezone |
+| Q21 | Timezone if admin travels? | Always app timezone from program settings | App timezone |
 | Q22 | Feb 29 / month-end? | MySQL `DATE_ADD` (§8.2) | DATE_ADD |
 | Q23 | Tech stack besides MySQL? | Next.js + TypeScript + Prisma; **MySQL 5.7.40** locally | Next.js + Prisma + 5.7.40 |
 | Q24 | Silver threshold? | **250** | 250 |
@@ -113,8 +113,8 @@ Answer these in place. Implementation should follow this list, not buried commen
 | Q34 | Deactivate vs delete admins? | Deactivate. Cannot deactivate last superadmin | Deactivate |
 | Q35 | Password rules? | Min 8. Own change needs current password | Min 8 + current |
 | Q36 | Forgot password? | No email. Another admin Sets password on an **admin** only | No email; never superadmin |
-| Q37 | Who can edit program Settings (S3)? | Any signed-in superadmin or admin | Any staff |
-| Q38 | Where do expiration + tier rules live? | **AWS S3 JSON** per environment, not MySQL | S3 |
+| Q37 | Who can edit program Settings? | Any signed-in superadmin or admin | Any staff |
+| Q38 | Where do expiration + tier rules live? | **JSON file** per environment, not MySQL | JSON file per instance |
 
 ---
 
@@ -141,8 +141,8 @@ Answer these in place. Implementation should follow this list, not buried commen
 
    Highest matching tier wins. Members list still shows **names only** — tier appears on the member header and profile.
 9. **No self-serve accounts.** Login only. Admins are provisioned on `/admins`. Own password is changed in Settings. **Set password** on Admins is for **admin** accounts only — never a superadmin (confirmed).
-10. **Program settings live in AWS S3** (one JSON object per environment). MySQL is not the source of truth for expiration or tiers.
-11. **Two deployed instances:** production and staging (separate DBs, separate S3 keys, two public URLs).
+10. **Program settings live in a JSON file** (one file per environment). MySQL is not the source of truth for expiration or tiers.
+11. **Two deployed instances:** production and staging (separate DBs, separate settings files, two public URLs).
 12. **No voids in v1.** History is Earn / Redeem / Expire only.
 
 ---
@@ -155,7 +155,7 @@ Answer these in place. Implementation should follow this list, not buried commen
 /members/:id/history              Points history (default landing after opening a member)
 /members/:id/profile              Name, contact, tier, next expiration
 /admins                           Admin accounts (create, set password)
-/settings                         Own password + program settings (writes S3)
+/settings                         Own password + program settings (writes this env’s JSON file)
 GET /api/meta                     Public JSON: version/tag + program settings (no login)
 ```
 
@@ -262,7 +262,7 @@ Helper text, e.g. `Showing 26 May 2026 – 26 Aug 2026`.
 `These {n} points will expire on {date} at 00:00`  
 (the morning after the anniversary calendar day — e.g. earn 26 Aug 2026 → expire **27 Aug 2027 00:00**).  
 
-Computed from `occurred_at`’s **date** in the S3 timezone + interval, then **start of the following local day** (§8.2). Time of day of the earn is ignored for expiry.
+Computed from `occurred_at`’s **date** in the program timezone + interval, then **start of the following local day** (§8.2). Time of day of the earn is ignored for expiry.
 
 Submit:
 
@@ -351,7 +351,7 @@ Success: stay signed in; show a short confirmation.
 - Validation on save: Bronze min is 0; every other min is an integer ≥ 1; mins are **strictly increasing** in display order; names unique and non-empty.
 - Live example on the page: `800 earned in 3 months → Gold. 1,000+ → Platinum.`
 - Changing rules applies immediately on next member open / next earn. No rewrite of past ledger rows.
-- Program save: **Save settings** writes this environment’s **S3** object (§8.9). Own-password save does not.
+- Program save: **Save settings** writes this environment’s JSON file (§8.9). Own-password save does not.
 
 ### 7.9 Admins
 
@@ -437,7 +437,7 @@ Sample (Elena): earned 2,140 · redeemed 500 · expired 400 · available 1,240.
 
 ### 8.2 Expiration timestamp
 
-Let `interval` be the **global S3 setting at earn time**. Ignore the earn’s clock time. Work in the S3 timezone (default `Asia/Manila`).
+Let `interval` be the **global program setting at earn time**. Ignore the earn’s clock time. Work in the program timezone (default `Asia/Manila`).
 
 ```
 earn_date      = calendar date of occurred_at in app timezone
@@ -461,7 +461,7 @@ Do **not** use `23:59:59` as the expiry instant. Use exclusive midnight: `expire
 
 ### 8.3 Changing the interval
 
-- Updates this environment’s **S3** program-settings JSON only.
+- Updates this environment’s program-settings JSON file only.
 - **Does not** rewrite `point_lots.expires_at`.
 - Next Create Activity uses the new interval.
 
@@ -503,7 +503,7 @@ qualifying = SUM(ledger.amount)
                AND occurred_at >= DATE_SUB(now(), INTERVAL {n} MONTH)
 ```
 
-`n` is 3, 6, or 12 from **S3** program settings (`tiers.lookbackPeriod`).
+`n` is 3, 6, or 12 from program settings (`tiers.lookbackPeriod`).
 
 **Current tier** = the rule with the greatest `min_points` such that `qualifying >= min_points`.  
 If none match (should not happen; Bronze is 0), treat as Bronze.
@@ -518,30 +518,29 @@ Same member, last 1 year, if an extra +400 earn on 4 Mar 2026 is in window → *
 
 **Recalc:** when an earn is logged, and whenever GET member runs (§8 / Q31). Opening a member a month later can demote them if earns aged out of the window.
 
-**Settings change:** new mins/period apply on next recalc after the S3 object is saved. No backdated “tier change” ledger in v1.
+**Settings change:** new mins/period apply on next recalc after the JSON file is saved. No backdated “tier change” ledger in v1.
 
-### 8.9 Program settings (AWS S3)
+### 8.9 Program settings (JSON file)
 
-**Source of truth:** one JSON object in **AWS S3** per environment. Not a MySQL `settings` / `tiers` table.
+**Source of truth:** one JSON file per environment on that instance’s filesystem. Not a MySQL `settings` / `tiers` table.
 
-| Env | Example key |
+| Env | Example path |
 |-----|-------------|
-| Localhost | `s3://$AWS_S3_BUCKET/local/program-settings.json` |
-| Production | `s3://$AWS_S3_BUCKET/production/program-settings.json` |
-| Staging | `s3://$AWS_S3_BUCKET/staging/program-settings.json` |
+| Localhost | `.data/local/program-settings.json` |
+| Production | `.data/production/program-settings.json` |
+| Staging | `.data/staging/program-settings.json` |
 
-**Localhost uses S3 too** — same GetObject/PutObject code as prod. Do **not** add a second store (no MySQL settings table, no `settings.json` on disk) unless AWS is unreachable; even then prefer MinIO with the same SDK, not a different schema.
+Override with `SETTINGS_FILE` if both Cloudera Applications share a project and you need a custom path. Same schema everywhere. Do **not** store program settings in MySQL.
 
 Guardrails:
 
-- `APP_ENV=development`, `SETTINGS_S3_KEY=local/program-settings.json`
-- **Never** point local env at `production/` or `staging/` keys
-- IAM user for the laptop: `s3:GetObject` + `s3:PutObject` on `local/*` only if you can; otherwise a dedicated **dev bucket**
-- `GET http://localhost:3000/api/meta` still returns `settings` from that local key (`environment`: `development`)
+- `APP_ENV=development` uses `.data/local/program-settings.json`
+- **Never** point local env at `production/` or `staging/` files
+- `GET http://localhost:3000/api/meta` returns `settings` from that local file (`environment`: `development`)
 
-The Settings UI **GetObject** on load and **PutObject** on **Save settings**. Optional short in-memory cache; S3 remains canonical. Saving own password does **not** write S3.
+The Settings UI reads the file on load and writes it on **Save settings**. Optional short in-memory cache; the file remains canonical. Saving own password does **not** write the file.
 
-If the object is missing at boot, seed this document then PutObject:
+If the file is missing at boot, seed this document then write it:
 
 ```json
 {
@@ -564,9 +563,9 @@ If the object is missing at boot, seed this document then PutObject:
 
 `expiration.interval`: `6_months` | `1_year`.  
 `tiers.lookbackPeriod`: `3_months` | `6_months` | `1_year`.  
-Validate §7.8 before PutObject. Changing `interval` does **not** rewrite existing lots.
+Validate §7.8 before writing. Changing `interval` does **not** rewrite existing lots.
 
-**ClouderaAI must not call S3.** The app reads S3; clients (including ClouderaAI) call `GET /api/meta` (§10.1).
+**ClouderaAI must not read the settings file.** The app reads the file; clients (including ClouderaAI) call `GET /api/meta` (§10.1).
 
 ---
 
@@ -589,7 +588,7 @@ Store datetimes as **UTC** `DATETIME(3)`; convert to Settings timezone in the UI
 | created_at | DATETIME(3) | |
 | updated_at | DATETIME(3) | |
 
-Do **not** store expiration interval, timezone, or tier rules in MySQL. Those live in S3 (§8.9).
+Do **not** store expiration interval, timezone, or tier rules in MySQL. Those live in the program-settings JSON file (§8.9).
 
 ### `members`
 
@@ -602,7 +601,7 @@ Do **not** store expiration interval, timezone, or tier rules in MySQL. Those li
 | created_at | DATETIME(3) | |
 | updated_at | DATETIME(3) | |
 
-Tier is **not** a column on `members`. Compute on read (§8.8) using S3 tier rules.
+Tier is **not** a column on `members`. Compute on read (§8.8) using program-settings tier rules.
 
 ### `activity_types`
 
@@ -681,8 +680,8 @@ ledger_entries 1──* lot_consumptions
 
 - Available points → §8.1  
 - All-time earned / redeemed / expired → §8.1.1  
-- Next expiration → min `expires_at` among spendable lots; amount → sum remaining whose calendar **date** in the S3 timezone equals that min’s date (convert in the app; MySQL 5.7 has no `AT TIME ZONE`)
-- Current tier + qualifying points → §8.8 using S3 `tiers`
+- Next expiration → min `expires_at` among spendable lots; amount → sum remaining whose calendar **date** in the program timezone equals that min’s date (convert in the app; MySQL 5.7 has no `AT TIME ZONE`)
+- Current tier + qualifying points → §8.8 using program-settings `tiers`
 
 If you cache balances on `members`, update them in the same transaction as lot changes **or** do not cache.
 
@@ -701,14 +700,15 @@ REST JSON. Session cookie required **except** `POST /api/auth/login` and **`GET 
 | GET | `/api/admins` | list |
 | POST | `/api/admins` | create; body includes plaintext password once |
 | POST | `/api/admins/:id/password` | reset another **admin’s** password (403 if target is superadmin) |
-| GET | `/api/settings` | current S3 program-settings document |
-| PUT | `/api/settings` | validate §7.8, **PutObject** to this env’s S3 key, return saved JSON |
+| GET | `/api/settings` | current program-settings document |
+| PUT | `/api/settings` | validate §7.8, write this env’s JSON file, return saved JSON |
 | GET | `/api/members?q=` | names only (id + name); `q` matches name |
 | POST | `/api/members` | create |
 | GET | `/api/members/:id` | header: name, tier, available, `earned_total`, `redeemed_total`, `expired_total`; profile fields + qualifying |
 | PATCH | `/api/members/:id` | name, phone, status |
 | GET | `/api/members/:id/history?range=3m\|6m\|1y\|all` | ledger rows |
 | GET | `/api/members/:id/expiration` | next when + amount (profile) |
+| POST | `/api/members/:id/expire` | post `EXPIRE` ledger rows for this member’s due lots |
 | POST | `/api/members/:id/activities` | Create Activity |
 | POST | `/api/members/:id/redemptions` | Redeem |
 | GET | `/api/activity-types` | catalog |
@@ -721,7 +721,7 @@ REST JSON. Session cookie required **except** `POST /api/auth/login` and **`GET 
 
 Unauthenticated. `Cache-Control: no-store`. CORS allow `GET` from `*`. Same shape on production and staging.
 
-ClouderaAI (and any other agent) calls **`GET {productionUrl}/api/meta`**. It does **not** use AWS credentials. `gitTag` / `version` / `gitSha` come from **deploy-time env** (`GIT_TAG`, `APP_VERSION`, `GIT_SHA`), not from GitHub at request time. `settings` is the **exact** S3 JSON this instance is using.
+ClouderaAI (and any other agent) calls **`GET {productionUrl}/api/meta`**. It does **not** read the settings file. `gitTag` / `version` / `gitSha` come from **deploy-time env** (`GIT_TAG`, `APP_VERSION`, `GIT_SHA`), not from GitHub at request time. `settings` is the **exact** JSON this instance is using.
 
 ```json
 {
@@ -732,7 +732,7 @@ ClouderaAI (and any other agent) calls **`GET {productionUrl}/api/meta`**. It do
   "gitSha": "abc1234",
   "deployedAt": "2026-08-26T13:00:00.000Z",
   "publicUrl": "https://points-engine-prod.example.com",
-  "settingsSource": "s3://your-bucket/production/program-settings.json",
+  "settingsSource": "file://.data/production/program-settings.json",
   "settings": {}
 }
 ```
@@ -742,8 +742,8 @@ ClouderaAI (and any other agent) calls **`GET {productionUrl}/api/meta`**. It do
 | `environment` | `APP_ENV`: `production` \| `staging` |
 | `version` / `gitTag` / `gitSha` | Env at deploy. If unset, JSON `null` (honest) |
 | `publicUrl` | `APP_PUBLIC_URL` |
-| `settings` | Current S3 program-settings object |
-| `settingsSource` | Bucket + key string |
+| `settings` | Current program-settings JSON |
+| `settingsSource` | File path string |
 
 Optional: `GET /api/meta/health` → `{ "ok": true, "environment": "staging" }` (also public).
 
@@ -780,8 +780,8 @@ Run via cron, systemd timer, or a worker (`node-cron` is fine for v1 on one box)
 | Last superadmin deactivated | Rejected |
 | Settings password without current | Rejected |
 | `GET /api/meta` without cookie | **200** + JSON; never 401 |
-| ClouderaAI → S3 | Out of scope. Use `/api/meta` |
-| Save settings | Updates this env’s S3 object; next `/api/meta` matches |
+| ClouderaAI → settings file | Out of scope. Use `/api/meta` |
+| Save settings | Updates this env’s JSON file; next `/api/meta` matches |
 
 ---
 
@@ -790,8 +790,8 @@ Run via cron, systemd timer, or a worker (`node-cron` is fine for v1 on one box)
 | Layer | Choice |
 |-------|--------|
 | App | Next.js (App Router) + TypeScript |
-| Members / ledger / admins | **MySQL 5.7.40** locally (Homebrew `mysql@5.7`). RDS 5.7 if offered, else **RDS 8.0** with **5.7-safe SQL** |
-| Program settings | **AWS S3** JSON per environment (§8.9) |
+| Members / ledger / admins | **MySQL 5.7.40** locally (Homebrew `mysql@5.7`). Cloud MySQL 5.7 if offered, else **8.0** with **5.7-safe SQL** |
+| Program settings | JSON file per environment (§8.9) |
 | ORM | Prisma (`provider = "mysql"`, 5.7-compatible) |
 | Auth | Session cookie + bcrypt |
 | Public metadata | `GET /api/meta` (§10.1) |
@@ -803,10 +803,10 @@ Run via cron, systemd timer, or a worker (`node-cron` is fine for v1 on one box)
 |--|-----------|------------|---------|
 | URL | `http://localhost:3000` | `APP_PUBLIC_URL` | different public URL |
 | MySQL | 5.7.40 on this Mac | `points_prod` | `points_staging` |
-| S3 key | `local/program-settings.json` | `production/program-settings.json` | `staging/program-settings.json` |
+| Settings file | `.data/local/program-settings.json` | `.data/production/program-settings.json` | `.data/staging/program-settings.json` |
 | Demo members | Optional | No (superadmin only) | Yes if `SEED_DEMO_DATA=true` |
 
-**Free-tier-shaped AWS:** one S3 bucket (two keys); **one** RDS micro with **two databases** (two RDS instances 24/7 leave free tier). Two public app URLs: prefer **two Render (or Railway) web services** talking to that RDS — do not squeeze two Next.js processes onto one `t3.micro` (1 GB).
+**Cloudera AI Workbench:** two Applications (two public subdomains / URLs), one MySQL server with **two databases**, two settings files. Workbench does not provide MySQL.
 
 `GIT_TAG` / `GIT_SHA` / `APP_VERSION` are set **at deploy** (e.g. GitHub Action when pushing tag `v1.0.0`). `/api/meta` returns those values.
 
@@ -831,9 +831,9 @@ Run via cron, systemd timer, or a worker (`node-cron` is fine for v1 on one box)
 15. Unauthenticated HTML users only see **Login**. There is no sign-up. `GET /api/meta` remains public.
 16. A superadmin or an admin can create another **admin** on Admins and set that password. Only a superadmin can create a superadmin.
 17. Settings **Update password** changes the signed-in user’s password and requires the current password. **Set password** on Admins works for **admin** accounts only — never for a superadmin (403).
-18. **Save settings** writes this environment’s **S3** program-settings JSON. MySQL is not the source of truth for expiration or tiers.
-19. `curl -sS $APP_PUBLIC_URL/api/meta` with **no cookie** returns `environment`, `gitTag`/`version`/`gitSha` (or JSON `null` if unset), and `settings` equal to the current S3 object.
-20. Production and staging are two public URLs with different DBs and S3 keys.
+18. **Save settings** writes this environment’s program-settings JSON file. MySQL is not the source of truth for expiration or tiers.
+19. `curl -sS $APP_PUBLIC_URL/api/meta` with **no cookie** returns `environment`, `gitTag`/`version`/`gitSha` (or JSON `null` if unset), and `settings` equal to the current file.
+20. Production and staging are two public URLs with different DBs and settings files.
 
 ---
 
@@ -848,9 +848,9 @@ Run via cron, systemd timer, or a worker (`node-cron` is fine for v1 on one box)
 | Earned / Redeemed / Expired | All-time ledger totals shown under available (§8.1.1) |
 | FEFO | First-expiring lot consumed first |
 | Interval | Global 6 months or 1 year. Expiry = next local 00:00 after the anniversary date (§8.2) |
-| Program settings | S3 JSON: expiration + timezone + tier rules |
+| Program settings | JSON file: expiration + timezone + tier rules |
 | `/api/meta` | Public JSON: env, git tag/version, copy of program settings |
-| Qualifying points | Sum of **earns** in the S3 lookback period |
+| Qualifying points | Sum of **earns** in the lookback period |
 | Superadmin / Admin | Staff roles. Superadmin passwords are never reset from Admins; both roles can reset **admin** passwords |
 | Sign-up | Does not exist. Accounts are created on Admins |
 
@@ -862,6 +862,6 @@ Chat-locked items are already in §4 **Your decision**. Remaining optional polis
 
 1. Q6 catalog names / default points.
 2. Extra expiry buckets on Profile (v1 = next event only).
-3. Exact Render vs Railway for the two app URLs (RDS + S3 stay on AWS).
+3. Exact Cloudera Application subdomains and the MySQL host the engines will use.
 
 Wireframes: Login, Admins, Create member, Redeem, range filters, change password — canvas beside chat if present.

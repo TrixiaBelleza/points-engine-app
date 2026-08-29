@@ -7,8 +7,8 @@ export function startExpireJob() {
   g.__pointsExpireJob = true;
   const tick = async () => {
     try {
-      const n = await expireDueLots();
-      if (n > 0) console.info(`expire-lots: posted ${n} EXPIRE row(s)`);
+      const { lotsPosted } = await expireDueLots();
+      if (lotsPosted > 0) console.info(`expire-lots: posted ${lotsPosted} EXPIRE row(s)`);
     } catch (err) {
       console.error("expire-lots failed:", err);
     }
