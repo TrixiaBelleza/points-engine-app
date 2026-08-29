@@ -84,7 +84,7 @@ Answer these in place. Implementation should follow this list, not buried commen
 | Q6 | Activity catalog vs free-text? | Small catalog + optional note; points entered each time | Catalog |
 | Q7 | Can activity points be **0** or **negative**? | No negatives on Create Activity | No negatives |
 | Q8 | Can the admin **backdate** an activity? | Yes; `occurred_at` defaults to now | Yes |
-| Q9 | Can an activity / redemption be **voided**? | No voids in v1; admin logs a Bonus earn to correct | **No voids** |
+| Q9 | Can an earn be cancelled? | Feature-flagged full or partial cancellation of unexpired remaining points | `ENABLE_CANCEL_EARN` |
 | Q10 | Redemption: FIFO or FEFO? | **FEFO** | FEFO |
 | Q11 | Redemption amount? | Any integer ≥ 1, up to available | Any integer |
 | Q12 | Points precision? | Integer only | Integer |
@@ -95,7 +95,7 @@ Answer these in place. Implementation should follow this list, not buried commen
 | Q16 | Interval change rewrite existing lots? | **No.** Snapshotted at earn time | No |
 | Q17 | Member-level expiration override? | No | No |
 | Q18 | Create Activity from the members list? | Only on the member history page | History page |
-| Q19 | History row types? | Earn + redeem + expire (no void) | Earn / Redeem / Expire |
+| Q19 | History row types? | Earn + redeem + cancel + expire | Earn / Redeem / Cancel / Expire |
 | Q20 | Soft-delete members? | Deactivate | Deactivate |
 | Q21 | Timezone if admin travels? | Always app timezone from program settings | App timezone |
 | Q22 | Feb 29 / month-end? | MySQL `DATE_ADD` (§8.2) | DATE_ADD |
@@ -143,7 +143,7 @@ Answer these in place. Implementation should follow this list, not buried commen
 9. **No self-serve accounts.** Login only. Admins are provisioned on `/admins`. Own password is changed in Settings. **Set password** on Admins is for **admin** accounts only — never a superadmin (confirmed).
 10. **Program settings live in a JSON file** (one file per environment). MySQL is not the source of truth for expiration or tiers.
 11. **Two deployed instances:** production and staging (separate DBs, separate settings files, two public URLs).
-12. **No voids in v1.** History is Earn / Redeem / Expire only.
+12. **Earn cancellation is feature-flagged** via `ENABLE_CANCEL_EARN`. History includes Cancel only when that env var is enabled.
 
 ---
 
@@ -224,7 +224,7 @@ Shown on both member pages, stacked on the **left** (not a top-right metric):
   | Expired | −400 |
   | **Available** | **1,240** |
 
-  Identity: `available = earned − redeemed − expired`. Caption: `All-time · does not follow the history filter.`
+  Identity: `available = earned − redeemed − cancelled − expired`. Caption: `All-time · does not follow the history filter.`
 - Subnav: **Points history** · **Profile**
 - Actions on history page: **Create Activity** (primary), **Redeem** — these stay as page actions, not in the header corner
 
@@ -242,7 +242,7 @@ Helper text, e.g. `Showing 26 May 2026 – 26 Aug 2026`.
 
 | When | Type | Description | Points | Expires |
 |------|------|-------------|--------|---------|
-| datetime | Earn / Redeem / Expire | Activity name or reason | +200 / −80 | Earn rows: expiry datetime. Others: — |
+| datetime | Earn / Redeem / Cancel / Expire | Activity name or reason | +200 / −80 | Earn rows: expiry datetime. Others: — |
 
 **[Assumed]** Filter applies to `occurred_at` of the ledger row (when the earn/redeem/expire happened), not to the lot’s future expiry date.
 
@@ -425,10 +425,11 @@ Shown under available points on every member page:
 ```
 earned    = SUM(ledger.amount) WHERE type = 'EARN'
 redeemed  = SUM(ledger.amount) WHERE type = 'REDEEM'
+cancelled = SUM(ledger.amount) WHERE type = 'CANCEL'
 expired   = SUM(ledger.amount) WHERE type = 'EXPIRE'
           + SUM(lot.remaining_amount) WHERE remaining_amount > 0
             AND expires_at <= now()   -- unposted yet, so the identity still holds
-available = earned − redeemed − expired     -- must equal §8.1
+available = earned − redeemed − cancelled − expired     -- must equal §8.1
 ```
 
 This is **lifetime**, not the Points history range (Last 3 months, etc.). Changing that filter must not change these four numbers.
@@ -485,9 +486,16 @@ Idempotent: skip lots already at 0.
 
 **Balance truth** always uses §8.1 so a delayed job cannot let someone redeem expired points.
 
-### 8.6 Voids
+### 8.6 Earn cancellation
 
-**v1: no voids.** Do not add a Void type or reversing rows. Mistakes: log a new Bonus (or similar) earn. Keep the ledger to `EARN` / `REDEEM` / `EXPIRE`.
+`ENABLE_CANCEL_EARN` is an instance env var (unset defaults to `true`). When `false`, no Cancel action is rendered and the cancellation API is unavailable.
+
+- An admin may fully cancel an earn's remaining points or partially cancel an integer amount.
+- Cancellation applies only to the selected earn's lot; it is not FEFO.
+- Expired points and points already redeemed cannot be cancelled.
+- If an earn was partially redeemed, only its remaining unexpired points can be cancelled.
+- Full cancellation reduces the lot to zero. Partial cancellation reduces its remaining amount by the cancelled amount.
+- Record an append-only `CANCEL` ledger entry and a lot consumption.
 
 ### 8.7 Concurrency
 
@@ -704,7 +712,8 @@ REST JSON. Session cookie required **except** `POST /api/auth/login` and **`GET 
 | PUT | `/api/settings` | validate §7.8, write this env’s JSON file, return saved JSON |
 | GET | `/api/members?q=` | names only (id + name); `q` matches name |
 | POST | `/api/members` | create |
-| GET | `/api/members/:id` | header: name, tier, available, `earned_total`, `redeemed_total`, `expired_total`; profile fields + qualifying |
+| GET | `/api/members/:id` | header: name, tier, available, `earned_total`, `redeemed_total`, `cancelled_total`, `expired_total`; profile fields + qualifying |
+| POST | `/api/members/:id/activities/:activityId/cancel` | Fully or partially cancel the selected earn's remaining points when enabled |
 | PATCH | `/api/members/:id` | name, phone, status |
 | GET | `/api/members/:id/history?range=3m\|6m\|1y\|all` | ledger rows |
 | GET | `/api/members/:id/expiration` | next when + amount (profile) |
@@ -827,7 +836,7 @@ Run via cron, systemd timer, or a worker (`node-cron` is fine for v1 on one box)
 11. Members list shows **names only** (no phone, points, tier, or other attributes). Clicking a name opens history. Search matches by name.
 12. Settings can change lookback period and tier mins; Bronze stays at 0. A member with 800 earned in 3 months is **Gold**; 1,200 in 1 year is **Platinum** under the seeded rules.
 13. Redeeming points does **not** by itself change qualifying points or tier.
-14. Under available points, all-time **Earned / Redeemed / Expired** are shown and satisfy `earned − redeemed − expired = available`. Changing the history date filter does not change those four numbers.
+14. Under available points, all-time **Earned / Redeemed / Cancelled / Expired** are shown and satisfy `earned − redeemed − cancelled − expired = available`. Changing the history date filter does not change those totals.
 15. Unauthenticated HTML users only see **Login**. There is no sign-up. `GET /api/meta` remains public.
 16. A superadmin or an admin can create another **admin** on Admins and set that password. Only a superadmin can create a superadmin.
 17. Settings **Update password** changes the signed-in user’s password and requires the current password. **Set password** on Admins works for **admin** accounts only — never for a superadmin (403).
@@ -843,9 +852,9 @@ Run via cron, systemd timer, or a worker (`node-cron` is fine for v1 on one box)
 |------|---------|
 | Activity | Admin-logged event that **earns** points |
 | Lot | Bucket of points from one earn, with its own `expires_at` |
-| Ledger | Append-only earn / redeem / expire records |
-| Available | Spendable points now (§8.1) = earned − redeemed − expired |
-| Earned / Redeemed / Expired | All-time ledger totals shown under available (§8.1.1) |
+| Ledger | Append-only earn / redeem / cancel / expire records |
+| Available | Spendable points now (§8.1) = earned − redeemed − cancelled − expired |
+| Earned / Redeemed / Cancelled / Expired | All-time ledger totals shown under available (§8.1.1) |
 | FEFO | First-expiring lot consumed first |
 | Interval | Global 6 months or 1 year. Expiry = next local 00:00 after the anniversary date (§8.2) |
 | Program settings | JSON file: expiration + timezone + tier rules |

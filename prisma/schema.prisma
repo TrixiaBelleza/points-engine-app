@@ -31,6 +31,7 @@ enum LedgerType {
   EARN
   REDEEM
   EXPIRE
+  CANCEL
 }
 
 model Admin {
@@ -101,6 +102,7 @@ model PointLot {
   activityId          BigInt              @unique @map("activity_id")
   originalAmount      Int                 @map("original_amount")
   remainingAmount     Int                 @map("remaining_amount")
+  cancelledAmount     Int                 @default(0) @map("cancelled_amount")
   earnedAt            DateTime            @map("earned_at") @db.DateTime(3)
   expiresAt           DateTime            @map("expires_at") @db.DateTime(3)
   expirationInterval  ExpirationInterval  @map("expiration_interval")

@@ -5,6 +5,7 @@ import { mysqlAddMonths, mysqlAddYears } from "./mysql-date";
 import { normalizePhMobile } from "./phone";
 import { resolveTier } from "./tiers";
 import { DEFAULT_PROGRAM_SETTINGS, validateProgramSettings } from "./settings-types";
+import { nextExpirationFromLots } from "./members";
 
 describe("MySQL DATE_ADD clip", () => {
   it("clips Aug 31 + 6 months to Feb 28 (non-leap)", () => {
@@ -58,6 +59,31 @@ describe("expiration §8.2", () => {
     const a = computeExpiresAt(manila("2026-08-26T00:00:01"), tz, "1_year");
     const b = computeExpiresAt(manila("2026-08-26T23:59:59"), tz, "1_year");
     expect(a.getTime()).toBe(b.getTime());
+  });
+});
+
+describe("cancelled earn expiration regression", () => {
+  const now = new Date("2026-08-29T00:00:00.000Z");
+  const expiresAt = new Date("2027-08-30T00:00:00.000Z");
+
+  it("reproduces the partial-cancel bug in next expiration", () => {
+    expect(
+      nextExpirationFromLots(
+        [{ originalAmount: 100, remainingAmount: 80, cancelledAmount: 20, expiresAt }],
+        now,
+        "UTC",
+      ),
+    ).toEqual({ when: expiresAt.toISOString(), amount: 100 });
+  });
+
+  it("skips a fully cancelled earn", () => {
+    expect(
+      nextExpirationFromLots(
+        [{ originalAmount: 100, remainingAmount: 0, cancelledAmount: 100, expiresAt }],
+        now,
+        "UTC",
+      ),
+    ).toBeNull();
   });
 });
 

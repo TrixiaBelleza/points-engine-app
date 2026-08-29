@@ -6,6 +6,7 @@ import { api, signedPoints } from "@/lib/client";
 import { formatDate, formatDateTime } from "@/lib/expiration";
 import { CreateActivityModal } from "@/components/create-activity-modal";
 import { RedeemModal } from "@/components/redeem-modal";
+import { CancelEarnModal } from "@/components/cancel-earn-modal";
 import type { ExpirationIntervalId } from "@/lib/settings-types";
 import type { HistoryRange } from "@/lib/types";
 
@@ -18,13 +19,18 @@ type History = {
   pageSize: number;
   total: number;
   totalPages: number;
+  enableCancelEarn: boolean;
   entries: {
     id: number;
     occurredAt: string;
-    type: "EARN" | "REDEEM" | "EXPIRE";
+    type: "EARN" | "REDEEM" | "EXPIRE" | "CANCEL";
     description: string;
     points: number;
     expiresAt: string | null;
+    activityId: number | null;
+    cancellableAmount: number;
+    canCancel: boolean;
+    cancelUnavailableReason: string | null;
   }[];
 };
 
@@ -58,6 +64,10 @@ export function HistoryClient({
   const [availableNow, setAvailableNow] = useState(available);
   const [activityOpen, setActivityOpen] = useState(false);
   const [redeemOpen, setRedeemOpen] = useState(false);
+  const [cancelEarn, setCancelEarn] = useState<{
+    activityId: number;
+    remaining: number;
+  } | null>(null);
   const [loadingRange, setLoadingRange] = useState(false);
 
   useEffect(() => {
@@ -97,6 +107,7 @@ export function HistoryClient({
   function typeLabel(t: History["entries"][number]["type"]) {
     if (t === "EARN") return "Earn";
     if (t === "REDEEM") return "Redeem";
+    if (t === "CANCEL") return "Cancel";
     return "Expire";
   }
 
@@ -164,6 +175,9 @@ export function HistoryClient({
                   <th className="px-4 py-3 font-medium">Description</th>
                   <th className="px-4 py-3 text-right font-medium">Points</th>
                   <th className="px-4 py-3 font-medium">Expires</th>
+                  {history.enableCancelEarn ? (
+                    <th className="px-4 py-3 text-right font-medium">Action</th>
+                  ) : null}
                 </tr>
               </thead>
               <tbody>
@@ -182,6 +196,26 @@ export function HistoryClient({
                     <td className="px-4 py-3 whitespace-nowrap text-muted">
                       {row.expiresAt ? formatDateTime(new Date(row.expiresAt), timezone, false) : "—"}
                     </td>
+                    {history.enableCancelEarn ? (
+                      <td className="px-4 py-3 text-right">
+                        {row.type === "EARN" && row.activityId ? (
+                          <button
+                            type="button"
+                            className="btn-ghost px-3 py-1.5 text-[12px]"
+                            disabled={!row.canCancel}
+                            title={row.cancelUnavailableReason ?? undefined}
+                            onClick={() =>
+                              setCancelEarn({
+                                activityId: row.activityId!,
+                                remaining: row.cancellableAmount,
+                              })
+                            }
+                          >
+                            Cancel
+                          </button>
+                        ) : null}
+                      </td>
+                    ) : null}
                   </tr>
                 ))}
               </tbody>
@@ -239,6 +273,19 @@ export function HistoryClient({
             if (typeof nextAvailable === "number") setAvailableNow(nextAvailable);
             await afterLedgerChange();
             setRedeemOpen(false);
+          }}
+        />
+      ) : null}
+      {cancelEarn ? (
+        <CancelEarnModal
+          memberId={memberId}
+          activityId={cancelEarn.activityId}
+          remaining={cancelEarn.remaining}
+          onClose={() => setCancelEarn(null)}
+          onSaved={async (nextAvailable) => {
+            if (typeof nextAvailable === "number") setAvailableNow(nextAvailable);
+            await afterLedgerChange();
+            setCancelEarn(null);
           }}
         />
       ) : null}

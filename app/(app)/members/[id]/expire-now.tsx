@@ -40,15 +40,21 @@ export function ExpireNow({
   }
 
   return (
-    <div className="mt-4 space-y-3">
+    <div className="mt-3 space-y-2">
       {unpostedExpired > 0 ? (
-        <p className="text-[14px] text-muted">
+        <p className="text-[13px] text-muted">
           {fmtPoints(unpostedExpired)} points are past their expire date and not yet in history.
         </p>
       ) : null}
       {error ? <Banner kind="error">{error}</Banner> : null}
       {ok ? <Banner kind="ok">{ok}</Banner> : null}
-      <button type="button" id="run-expiration" className="btn-ghost" disabled={pending} onClick={run}>
+      <button
+        type="button"
+        id="run-expiration"
+        className="btn-ghost px-3 py-1.5 text-[13px]"
+        disabled={pending}
+        onClick={run}
+      >
         {pending ? "Running…" : "Run expiration"}
       </button>
     </div>

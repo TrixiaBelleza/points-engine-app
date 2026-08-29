@@ -46,6 +46,18 @@ Override with `SETTINGS_FILE` when needed. **Never** point the laptop at product
 
 `.data/` is gitignored. Missing files are created from the seeded defaults on first boot. `/api/meta` reports the path in `settingsSource`.
 
+### Cancel-earn feature flag
+
+`ENABLE_CANCEL_EARN` is an **Application env var**, same as `APP_ENV` and `DATABASE_URL`. Set it on each Cloudera Application. Unset defaults to enabled.
+
+| Instance | `ENABLE_CANCEL_EARN` |
+|----------|----------------------|
+| Local | `true` (or unset) |
+| Production | `true` |
+| Staging | `false` |
+
+When enabled, an earn row can be fully or partially cancelled while it still has unexpired points remaining. Redeemed points cannot be cancelled; after a partial redemption, only that earn's remaining points are cancellable. `/api/meta` reports `featureFlags.enable_cancel_earn`.
+
 ### Public metadata
 
 ```bash
@@ -69,6 +81,7 @@ See `.env.example`. Production and staging each need their own `DATABASE_URL`, `
 | `SESSION_SECRET` | Cookie signing key (different per instance) |
 | `SUPERADMIN_EMAIL` / `SUPERADMIN_PASSWORD` | Seeded only when `admins` is empty; unset the password after first deploy |
 | `SETTINGS_FILE` | Optional path to this instance’s program-settings JSON |
+| `ENABLE_CANCEL_EARN` | `true` / `false`. Unset = enabled. Staging should set `false` |
 | `SEED_DEMO_DATA` | `true` only for local/staging |
 | `APP_VERSION` / `GIT_TAG` / `GIT_SHA` / `DEPLOYED_AT` | Injected at deploy |
 
@@ -112,6 +125,7 @@ Run that against **each** database (`DATABASE_URL` for prod, then staging). Or s
 | `APP_PUBLIC_URL` | `https://points-prod.<workbench-domain>` |
 | `DATABASE_URL` | `mysql://.../points_prod` |
 | `SESSION_SECRET` | unique long string |
+| `ENABLE_CANCEL_EARN` | `true` |
 | `SEED_DEMO_DATA` | `false` |
 
 **Staging**
@@ -124,6 +138,7 @@ Run that against **each** database (`DATABASE_URL` for prod, then staging). Or s
 | `APP_PUBLIC_URL` | `https://points-staging.<workbench-domain>` |
 | `DATABASE_URL` | `mysql://.../points_staging` |
 | `SESSION_SECRET` | a **different** unique long string |
+| `ENABLE_CANCEL_EARN` | `false` |
 | `SEED_DEMO_DATA` | `true` if you want demo members |
 
 Application-level env vars override project-level ones.

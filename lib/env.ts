@@ -29,8 +29,21 @@ export function env() {
     superadminPassword: read("SUPERADMIN_PASSWORD"),
     settingsFile: read("SETTINGS_FILE"),
     seedDemoData: read("SEED_DEMO_DATA") === "true",
+    enableCancelEarn: parseEnvFlag(read("ENABLE_CANCEL_EARN"), true),
     cookieSecure: appEnv === "production" || appEnv === "staging",
   };
+}
+
+export function parseEnvFlag(value: string, fallback = true): boolean {
+  const v = value.trim().toLowerCase();
+  if (!v) return fallback;
+  if (v === "true" || v === "1" || v === "yes") return true;
+  if (v === "false" || v === "0" || v === "no") return false;
+  return fallback;
+}
+
+export function cancelEarnEnabled(): boolean {
+  return parseEnvFlag(read("ENABLE_CANCEL_EARN"), true);
 }
 
 function emptyToNull(v: string): string | null {

@@ -14,6 +14,7 @@ export type MemberSnapshot = {
   available: number;
   earnedTotal: number;
   redeemedTotal: number;
+  cancelledTotal: number;
   expiredTotal: number;
   unpostedExpired: number;
   tier: {
@@ -33,6 +34,10 @@ export type MemberChromeData = {
   available: number;
   earnedTotal: number;
   redeemedTotal: number;
+  cancelledTotal: number;
   expiredTotal: number;
+  unpostedExpired: number;
+  timezone: string;
+  nextExpiration: { when: string; amount: number } | null;
   tier: MemberSnapshot["tier"];
 };

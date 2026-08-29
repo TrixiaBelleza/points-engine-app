@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { MemberChrome } from "./member-chrome";
+import { MemberChrome, MemberSubnav } from "./member-chrome";
 import { getMemberSnapshot } from "@/lib/members";
 
 export const dynamic = "force-dynamic";
@@ -22,13 +22,20 @@ export default async function MemberLayout({
       available: member.available,
       earnedTotal: member.earnedTotal,
       redeemedTotal: member.redeemedTotal,
+      cancelledTotal: member.cancelledTotal,
       expiredTotal: member.expiredTotal,
+      unpostedExpired: member.unpostedExpired,
+      timezone: member.timezone,
+      nextExpiration: member.nextExpiration,
       tier: member.tier,
     };
     return (
       <div className="grid gap-10 lg:grid-cols-[260px_minmax(0,1fr)]">
         <MemberChrome member={chrome} />
-        <div>{children}</div>
+        <div>
+          <MemberSubnav memberId={member.id} />
+          {children}
+        </div>
       </div>
     );
   } catch {
