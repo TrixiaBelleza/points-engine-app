@@ -30,6 +30,7 @@ export function env() {
     settingsFile: read("SETTINGS_FILE"),
     seedDemoData: read("SEED_DEMO_DATA") === "true",
     enableCancelEarn: parseEnvFlag(read("ENABLE_CANCEL_EARN"), true),
+    enableCancelRedeem: parseEnvFlag(read("ENABLE_CANCEL_REDEEM"), true),
     cookieSecure: appEnv === "production" || appEnv === "staging",
   };
 }
@@ -44,6 +45,10 @@ export function parseEnvFlag(value: string, fallback = true): boolean {
 
 export function cancelEarnEnabled(): boolean {
   return parseEnvFlag(read("ENABLE_CANCEL_EARN"), true);
+}
+
+export function cancelRedeemEnabled(): boolean {
+  return parseEnvFlag(read("ENABLE_CANCEL_REDEEM"), true);
 }
 
 function emptyToNull(v: string): string | null {

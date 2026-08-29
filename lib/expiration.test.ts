@@ -66,14 +66,14 @@ describe("cancelled earn expiration regression", () => {
   const now = new Date("2026-08-29T00:00:00.000Z");
   const expiresAt = new Date("2027-08-30T00:00:00.000Z");
 
-  it("reproduces the partial-cancel bug in next expiration", () => {
+  it("counts remaining after a partial earn cancel", () => {
     expect(
       nextExpirationFromLots(
         [{ originalAmount: 100, remainingAmount: 80, cancelledAmount: 20, expiresAt }],
         now,
         "UTC",
       ),
-    ).toEqual({ when: expiresAt.toISOString(), amount: 100 });
+    ).toEqual({ when: expiresAt.toISOString(), amount: 80 });
   });
 
   it("skips a fully cancelled earn", () => {
@@ -84,6 +84,47 @@ describe("cancelled earn expiration regression", () => {
         "UTC",
       ),
     ).toBeNull();
+  });
+});
+
+describe("cancelled redeem expiration regression", () => {
+  const now = new Date("2026-08-29T00:00:00.000Z");
+  const expiresAt = new Date("2027-08-30T00:00:00.000Z");
+
+  it("includes restored points after a cancelled redeem", () => {
+    expect(
+      nextExpirationFromLots(
+        [
+          {
+            originalAmount: 100,
+            remainingAmount: 100,
+            cancelledAmount: 0,
+            restoredAmount: 20,
+            expiresAt,
+          },
+        ],
+        now,
+        "UTC",
+      ),
+    ).toEqual({ when: expiresAt.toISOString(), amount: 100 });
+  });
+
+  it("includes a lot whose remaining exists only because a redeem was cancelled", () => {
+    expect(
+      nextExpirationFromLots(
+        [
+          {
+            originalAmount: 100,
+            remainingAmount: 100,
+            cancelledAmount: 0,
+            restoredAmount: 100,
+            expiresAt,
+          },
+        ],
+        now,
+        "UTC",
+      ),
+    ).toEqual({ when: expiresAt.toISOString(), amount: 100 });
   });
 });
 

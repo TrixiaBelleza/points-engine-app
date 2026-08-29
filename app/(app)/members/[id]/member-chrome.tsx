@@ -36,6 +36,9 @@ export function MemberChrome({ member }: { member: MemberChromeData }) {
           {member.cancelledTotal > 0 ? (
             <Row label="Cancelled" value={signedPoints(-member.cancelledTotal)} />
           ) : null}
+          {member.cancelledRedeemTotal > 0 ? (
+            <Row label="Cancel redeem" value={signedPoints(member.cancelledRedeemTotal)} />
+          ) : null}
           <Row label="Expired" value={signedPoints(-member.expiredTotal)} />
           <tr className="border-t border-ink/20 font-semibold">
             <td className="py-1.5">Available</td>

@@ -1,8 +1,7 @@
-import { env } from "@/lib/env";
+import { env, cancelEarnEnabled, cancelRedeemEnabled } from "@/lib/env";
 import { json } from "@/lib/http";
 import { boot } from "@/lib/boot";
 import { getProgramSettings, settingsSourceLabelForEnv } from "@/lib/settings";
-import { cancelEarnEnabled } from "@/lib/env";
 
 export const dynamic = "force-dynamic";
 
@@ -34,7 +33,10 @@ export async function GET() {
       publicUrl: e.publicUrl,
       settingsSource: settingsSourceLabelForEnv(),
       settings,
-      featureFlags: { enable_cancel_earn: cancelEarnEnabled() },
+      featureFlags: {
+        enable_cancel_earn: cancelEarnEnabled(),
+        enable_cancel_redeem: cancelRedeemEnabled(),
+      },
     },
     { headers: corsHeaders() },
   );

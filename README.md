@@ -46,17 +46,17 @@ Override with `SETTINGS_FILE` when needed. **Never** point the laptop at product
 
 `.data/` is gitignored. Missing files are created from the seeded defaults on first boot. `/api/meta` reports the path in `settingsSource`.
 
-### Cancel-earn feature flag
+### Cancel feature flags
 
-`ENABLE_CANCEL_EARN` is an **Application env var**, same as `APP_ENV` and `DATABASE_URL`. Set it on each Cloudera Application. Unset defaults to enabled.
+`ENABLE_CANCEL_EARN` and `ENABLE_CANCEL_REDEEM` are Application env vars. Unset defaults to enabled.
 
-| Instance | `ENABLE_CANCEL_EARN` |
-|----------|----------------------|
+| Instance | Flags |
+|----------|--------|
 | Local | `true` (or unset) |
 | Production | `true` |
 | Staging | `false` |
 
-When enabled, an earn row can be fully or partially cancelled while it still has unexpired points remaining. Redeemed points cannot be cancelled; after a partial redemption, only that earn's remaining points are cancellable. `/api/meta` reports `featureFlags.enable_cancel_earn`.
+When cancel earn is enabled, an earn row can be fully or partially cancelled while it still has unexpired remaining points. When cancel redeem is enabled, a redemption can be fully or partially cancelled while the consumed lots are still unexpired. `/api/meta` reports both flags.
 
 ### Public metadata
 
@@ -82,6 +82,7 @@ See `.env.example`. Production and staging each need their own `DATABASE_URL`, `
 | `SUPERADMIN_EMAIL` / `SUPERADMIN_PASSWORD` | Seeded only when `admins` is empty; unset the password after first deploy |
 | `SETTINGS_FILE` | Optional path to this instance’s program-settings JSON |
 | `ENABLE_CANCEL_EARN` | `true` / `false`. Unset = enabled. Staging should set `false` |
+| `ENABLE_CANCEL_REDEEM` | `true` / `false`. Unset = enabled. Staging should set `false` |
 | `SEED_DEMO_DATA` | `true` only for local/staging |
 | `APP_VERSION` / `GIT_TAG` / `GIT_SHA` / `DEPLOYED_AT` | Injected at deploy |
 
@@ -126,6 +127,7 @@ Run that against **each** database (`DATABASE_URL` for prod, then staging). Or s
 | `DATABASE_URL` | `mysql://.../points_prod` |
 | `SESSION_SECRET` | unique long string |
 | `ENABLE_CANCEL_EARN` | `true` |
+| `ENABLE_CANCEL_REDEEM` | `true` |
 | `SEED_DEMO_DATA` | `false` |
 
 **Staging**
@@ -139,6 +141,7 @@ Run that against **each** database (`DATABASE_URL` for prod, then staging). Or s
 | `DATABASE_URL` | `mysql://.../points_staging` |
 | `SESSION_SECRET` | a **different** unique long string |
 | `ENABLE_CANCEL_EARN` | `false` |
+| `ENABLE_CANCEL_REDEEM` | `false` |
 | `SEED_DEMO_DATA` | `true` if you want demo members |
 
 Application-level env vars override project-level ones.

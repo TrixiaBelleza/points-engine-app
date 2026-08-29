@@ -8,7 +8,7 @@ import { tierSnapshot } from "./tiers";
 import type { Session } from "./session";
 import type { ExpirationIntervalId } from "./settings-types";
 import { HISTORY_PAGE_SIZE, type HistoryRange } from "./types";
-import { cancelEarnEnabled } from "./env";
+import { cancelEarnEnabled, cancelRedeemEnabled } from "./env";
 
 function asInterval(id: ExpirationIntervalId): "six_months" | "one_year" {
   return id === "1_year" ? "one_year" : "six_months";
@@ -73,7 +73,7 @@ export async function getMemberSnapshot(memberId: bigint) {
   const settings = await getProgramSettings();
   const now = new Date();
 
-  const [lots, earnAgg, redeemAgg, expireAgg, cancelAgg, qualifyingAgg] = await Promise.all([
+  const [lots, earnAgg, redeemAgg, expireAgg, cancelAgg, cancelRedeemAgg, qualifyingAgg] = await Promise.all([
     prisma.pointLot.findMany({ where: { memberId } }),
     prisma.ledgerEntry.aggregate({
       where: { memberId, type: "EARN" },
@@ -89,6 +89,10 @@ export async function getMemberSnapshot(memberId: bigint) {
     }),
     prisma.ledgerEntry.aggregate({
       where: { memberId, type: "CANCEL" },
+      _sum: { amount: true },
+    }),
+    prisma.ledgerEntry.aggregate({
+      where: { memberId, type: "CANCEL_REDEEM" },
       _sum: { amount: true },
     }),
     prisma.ledgerEntry.aggregate({
@@ -108,6 +112,7 @@ export async function getMemberSnapshot(memberId: bigint) {
   const earnedTotal = earnAgg._sum.amount ?? 0;
   const redeemedTotal = redeemAgg._sum.amount ?? 0;
   const cancelledTotal = cancelAgg._sum.amount ?? 0;
+  const cancelledRedeemTotal = cancelRedeemAgg._sum.amount ?? 0;
   const postedExpired = expireAgg._sum.amount ?? 0;
   const unpostedExpired = lots
     .filter((l) => l.remainingAmount > 0 && l.expiresAt <= now)
@@ -129,6 +134,7 @@ export async function getMemberSnapshot(memberId: bigint) {
     earnedTotal,
     redeemedTotal,
     cancelledTotal,
+    cancelledRedeemTotal,
     expiredTotal,
     unpostedExpired,
     tier,
@@ -140,13 +146,14 @@ type LotRow = {
   originalAmount: number;
   remainingAmount: number;
   cancelledAmount: number;
+  restoredAmount?: number;
   expiresAt: Date;
 };
 
-// Deliberately reproduces the partial-cancel defect: cancellation reduces the
-// spendable balance, but an expiration event still sees the pre-cancel amount.
-function expirationAmount(lot: Pick<LotRow, "remainingAmount" | "cancelledAmount">): number {
-  return lot.remainingAmount + (lot.cancelledAmount > 0 ? lot.cancelledAmount : 0);
+// Expire remaining on the lot. Cancel earn already reduced remaining; cancel
+// redeem already restored it. Do not add cancelledAmount or subtract restoredAmount.
+function expirationAmount(lot: Pick<LotRow, "remainingAmount">): number {
+  return lot.remainingAmount > 0 ? lot.remainingAmount : 0;
 }
 
 export function nextExpirationFromLots(
@@ -154,7 +161,9 @@ export function nextExpirationFromLots(
   now: Date,
   timezone: string,
 ): { when: string; amount: number } | null {
-  const spendable = lots.filter((l) => l.remainingAmount > 0 && l.expiresAt > now);
+  const spendable = lots.filter(
+    (l) => l.remainingAmount > 0 && l.expiresAt > now && expirationAmount(l) > 0,
+  );
   if (spendable.length === 0) return null;
   const minExpires = spendable.reduce(
     (min, l) => (l.expiresAt < min ? l.expiresAt : min),
@@ -223,7 +232,34 @@ export async function getHistory(memberId: bigint, range: HistoryRange, page = 1
     : [];
   const lotByActivity = new Map(lots.map((l) => [Number(l.activityId), l]));
 
+  const redeemIds = entries.filter((e) => e.type === "REDEEM").map((e) => e.id);
+  const redeemConsumptions = redeemIds.length
+    ? await prisma.lotConsumption.findMany({
+        where: { ledgerEntryId: { in: redeemIds } },
+        include: { lot: true },
+      })
+    : [];
+  const consumptionsByRedeem = new Map<number, typeof redeemConsumptions>();
+  for (const c of redeemConsumptions) {
+    const key = Number(c.ledgerEntryId);
+    const list = consumptionsByRedeem.get(key) ?? [];
+    list.push(c);
+    consumptionsByRedeem.set(key, list);
+  }
+  const cancelRedeems = redeemIds.length
+    ? await prisma.ledgerEntry.findMany({
+        where: { type: "CANCEL_REDEEM", sourceLedgerId: { in: redeemIds } },
+      })
+    : [];
+  const cancelledRedeemBySource = new Map<number, number>();
+  for (const row of cancelRedeems) {
+    if (!row.sourceLedgerId) continue;
+    const key = Number(row.sourceLedgerId);
+    cancelledRedeemBySource.set(key, (cancelledRedeemBySource.get(key) ?? 0) + row.amount);
+  }
+
   const enableCancelEarn = cancelEarnEnabled();
+  const enableCancelRedeem = cancelRedeemEnabled();
 
   return {
     range,
@@ -235,6 +271,7 @@ export async function getHistory(memberId: bigint, range: HistoryRange, page = 1
     total,
     totalPages,
     enableCancelEarn,
+    enableCancelRedeem,
     entries: entries.map((e) => {
       const lot = e.activityId ? lotByActivity.get(Number(e.activityId)) : undefined;
       let description = "";
@@ -245,20 +282,38 @@ export async function getHistory(memberId: bigint, range: HistoryRange, page = 1
         description = e.note?.trim() ? e.note : "Redemption";
       } else if (e.type === "CANCEL") {
         description = e.note?.trim() ? e.note : "Earn cancelled";
+      } else if (e.type === "CANCEL_REDEEM") {
+        description = e.note?.trim() ? e.note : "Redemption cancelled";
       } else {
         description = "Points expired";
       }
-      const signed = e.type === "EARN" ? e.amount : -e.amount;
-      const canCancel =
-        enableCancelEarn &&
-        e.type === "EARN" &&
-        Boolean(lot && lot.remainingAmount > 0 && lot.expiresAt > now);
+      const signed = e.type === "EARN" || e.type === "CANCEL_REDEEM" ? e.amount : -e.amount;
+      let canCancel = false;
       let cancelUnavailableReason: string | null = null;
-      if (enableCancelEarn && e.type === "EARN" && !canCancel) {
-        if (!lot || lot.remainingAmount <= 0) {
-          cancelUnavailableReason = "This earn has no remaining points.";
-        } else if (lot.expiresAt <= now) {
-          cancelUnavailableReason = "Expired points can no longer be cancelled.";
+      let cancellableAmount = 0;
+      if (enableCancelEarn && e.type === "EARN") {
+        cancellableAmount = lot?.remainingAmount ?? 0;
+        canCancel = Boolean(lot && lot.remainingAmount > 0 && lot.expiresAt > now);
+        if (!canCancel) {
+          if (!lot || lot.remainingAmount <= 0) {
+            cancelUnavailableReason = "This earn has no remaining points.";
+          } else if (lot.expiresAt <= now) {
+            cancelUnavailableReason = "Expired points can no longer be cancelled.";
+          }
+        }
+      }
+      if (enableCancelRedeem && e.type === "REDEEM") {
+        const already = cancelledRedeemBySource.get(Number(e.id)) ?? 0;
+        cancellableAmount = Math.max(0, e.amount - already);
+        const consumedLots = consumptionsByRedeem.get(Number(e.id)) ?? [];
+        const expiredLot = consumedLots.some((c) => c.lot.expiresAt <= now);
+        canCancel = cancellableAmount > 0 && !expiredLot;
+        if (!canCancel) {
+          if (expiredLot) {
+            cancelUnavailableReason = "Redeemed points that have expired can no longer be cancelled.";
+          } else {
+            cancelUnavailableReason = "This redemption has already been cancelled.";
+          }
         }
       }
       return {
@@ -269,7 +324,7 @@ export async function getHistory(memberId: bigint, range: HistoryRange, page = 1
         points: signed,
         expiresAt: e.type === "EARN" && lot ? lot.expiresAt.toISOString() : null,
         activityId: e.type === "EARN" && e.activityId ? Number(e.activityId) : null,
-        cancellableAmount: e.type === "EARN" && lot ? lot.remainingAmount : 0,
+        cancellableAmount,
         canCancel,
         cancelUnavailableReason,
       };
@@ -505,6 +560,111 @@ export async function cancelEarn(
   return getMemberSnapshot(memberId);
 }
 
+export async function cancelRedeem(
+  memberId: bigint,
+  redeemLedgerId: bigint,
+  actor: Session,
+  input: { amount: number },
+) {
+  if (!cancelRedeemEnabled()) throw new HttpError(404, "Not found.");
+
+  const amount = Number(input.amount);
+  if (!Number.isInteger(amount) || amount < 1) {
+    throw new HttpError(400, "Cancellation amount must be an integer of at least 1.");
+  }
+  await getMemberOrThrow(memberId);
+  const now = new Date();
+
+  await prisma.$transaction(
+    async (tx) => {
+      await tx.$executeRaw`SELECT id FROM members WHERE id = ${memberId} FOR UPDATE`;
+      const redeem = await tx.ledgerEntry.findFirst({
+        where: { id: redeemLedgerId, memberId, type: "REDEEM" },
+        include: { consumptions: { include: { lot: true }, orderBy: { id: "desc" } } },
+      });
+      if (!redeem) throw new HttpError(404, "Redemption not found.");
+
+      const alreadyRows = await tx.ledgerEntry.findMany({
+        where: { type: "CANCEL_REDEEM", sourceLedgerId: redeem.id },
+        include: { consumptions: true },
+      });
+      const already = alreadyRows.reduce((s, r) => s + r.amount, 0);
+      const leftover = redeem.amount - already;
+      if (leftover <= 0) {
+        throw new HttpError(422, "This redemption has already been cancelled.");
+      }
+      if (amount > leftover) {
+        throw new HttpError(422, "Cannot cancel more than the remaining redeemed points.", {
+          remaining: leftover,
+        });
+      }
+      if (redeem.consumptions.some((c) => c.lot.expiresAt <= now)) {
+        throw new HttpError(422, "Redeemed points that have expired can no longer be cancelled.");
+      }
+
+      const restoredByLot = new Map<string, number>();
+      for (const row of alreadyRows) {
+        for (const c of row.consumptions) {
+          const key = String(c.lotId);
+          restoredByLot.set(key, (restoredByLot.get(key) ?? 0) + c.amount);
+        }
+      }
+
+      const ledger = await tx.ledgerEntry.create({
+        data: {
+          memberId,
+          type: "CANCEL_REDEEM",
+          amount,
+          occurredAt: now,
+          sourceLedgerId: redeem.id,
+          note: amount === leftover ? "Redemption fully cancelled" : "Redemption partially cancelled",
+          createdByAdminId: BigInt(actor.adminId),
+        },
+      });
+
+      let left = amount;
+      for (const consumption of redeem.consumptions) {
+        if (left <= 0) break;
+        const lotKey = String(consumption.lotId);
+        const alreadyRestored = restoredByLot.get(lotKey) ?? 0;
+        const unrestored = consumption.amount - alreadyRestored;
+        if (unrestored <= 0) continue;
+        const take = Math.min(left, unrestored);
+        const locked = await tx.$queryRaw<
+          { id: bigint; remaining_amount: number; restored_amount: number; expires_at: Date }[]
+        >(Prisma.sql`
+          SELECT id, remaining_amount, restored_amount, expires_at
+          FROM point_lots
+          WHERE id = ${consumption.lotId}
+          FOR UPDATE
+        `);
+        if (locked.length === 0) throw new HttpError(404, "Point lot not found.");
+        if (locked[0].expires_at <= now) {
+          throw new HttpError(422, "Redeemed points that have expired can no longer be cancelled.");
+        }
+        await tx.pointLot.update({
+          where: { id: consumption.lotId },
+          data: {
+            remainingAmount: Number(locked[0].remaining_amount) + take,
+            restoredAmount: Number(locked[0].restored_amount) + take,
+          },
+        });
+        await tx.lotConsumption.create({
+          data: { lotId: consumption.lotId, ledgerEntryId: ledger.id, amount: take },
+        });
+        restoredByLot.set(lotKey, alreadyRestored + take);
+        left -= take;
+      }
+      if (left !== 0) {
+        throw new HttpError(422, "Could not restore the cancelled redemption onto lots.");
+      }
+    },
+    { isolationLevel: "ReadCommitted", timeout: 15000 },
+  );
+
+  return getMemberSnapshot(memberId);
+}
+
 export async function expireDueLots(opts?: {
   now?: Date;
   memberId?: bigint;
@@ -524,10 +684,14 @@ export async function expireDueLots(opts?: {
   for (const lot of due) {
     await prisma.$transaction(async (tx) => {
       const locked = await tx.$queryRaw<
-        { id: bigint; remaining_amount: number; cancelled_amount: number; expires_at: Date }[]
+        {
+          id: bigint;
+          remaining_amount: number;
+          expires_at: Date;
+        }[]
       >(
         Prisma.sql`
-          SELECT id, remaining_amount, cancelled_amount, expires_at
+          SELECT id, remaining_amount, expires_at
           FROM point_lots
           WHERE id = ${lot.id} AND remaining_amount > 0 AND expires_at <= ${now}
           FOR UPDATE
@@ -536,10 +700,8 @@ export async function expireDueLots(opts?: {
       if (locked.length === 0) return;
       const remaining = Number(locked[0].remaining_amount);
       if (remaining <= 0) return;
-      const amountToExpire = expirationAmount({
-        remainingAmount: remaining,
-        cancelledAmount: Number(locked[0].cancelled_amount),
-      });
+      const amountToExpire = expirationAmount({ remainingAmount: remaining });
+      if (amountToExpire <= 0) return;
       const ledger = await tx.ledgerEntry.create({
         data: {
           memberId: lot.memberId,

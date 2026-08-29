@@ -124,7 +124,8 @@ Seed **deterministic demo data on staging only** (flag `SEED_DEMO_DATA=true`): m
 - Contact number: **Profile only**, never in member chrome/history.
 - Available points **under the member name**, not top-right.
 - Under available: all-time **Earned / Redeemed / Cancelled / Expired** with `earned − redeemed − cancelled − expired = available`. Independent of the history date filter (default last 3 months).
-- Cancel earn is gated by `ENABLE_CANCEL_EARN` (Application env var; unset = enabled). Staging should set `false`; production `true`.
+- Cancel earn is gated by `ENABLE_CANCEL_EARN` (unset = enabled). Staging should set `false`; production `true`.
+- Cancel redeem is gated by `ENABLE_CANCEL_REDEEM` (unset = enabled). Staging should set `false`; production `true`.
 - No sign-up. Login only. Admins page creates staff and sets **admin** passwords. **Never** Set password on a superadmin (UI + API 403).
 - Settings: own password (current + new) separate from program Save (which writes this env’s JSON file).
 
@@ -142,6 +143,7 @@ SUPERADMIN_PASSWORD=
 SESSION_SECRET=
 SETTINGS_FILE=
 ENABLE_CANCEL_EARN=
+ENABLE_CANCEL_REDEEM=
 SEED_DEMO_DATA=false
 ```
 

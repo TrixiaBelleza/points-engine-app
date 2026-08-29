@@ -7,6 +7,7 @@ import { formatDate, formatDateTime } from "@/lib/expiration";
 import { CreateActivityModal } from "@/components/create-activity-modal";
 import { RedeemModal } from "@/components/redeem-modal";
 import { CancelEarnModal } from "@/components/cancel-earn-modal";
+import { CancelRedeemModal } from "@/components/cancel-redeem-modal";
 import type { ExpirationIntervalId } from "@/lib/settings-types";
 import type { HistoryRange } from "@/lib/types";
 
@@ -20,10 +21,11 @@ type History = {
   total: number;
   totalPages: number;
   enableCancelEarn: boolean;
+  enableCancelRedeem: boolean;
   entries: {
     id: number;
     occurredAt: string;
-    type: "EARN" | "REDEEM" | "EXPIRE" | "CANCEL";
+    type: "EARN" | "REDEEM" | "EXPIRE" | "CANCEL" | "CANCEL_REDEEM";
     description: string;
     points: number;
     expiresAt: string | null;
@@ -68,6 +70,10 @@ export function HistoryClient({
     activityId: number;
     remaining: number;
   } | null>(null);
+  const [cancelRedeem, setCancelRedeem] = useState<{
+    ledgerId: number;
+    remaining: number;
+  } | null>(null);
   const [loadingRange, setLoadingRange] = useState(false);
 
   useEffect(() => {
@@ -108,6 +114,7 @@ export function HistoryClient({
     if (t === "EARN") return "Earn";
     if (t === "REDEEM") return "Redeem";
     if (t === "CANCEL") return "Cancel";
+    if (t === "CANCEL_REDEEM") return "Cancel redeem";
     return "Expire";
   }
 
@@ -175,7 +182,7 @@ export function HistoryClient({
                   <th className="px-4 py-3 font-medium">Description</th>
                   <th className="px-4 py-3 text-right font-medium">Points</th>
                   <th className="px-4 py-3 font-medium">Expires</th>
-                  {history.enableCancelEarn ? (
+                  {history.enableCancelEarn || history.enableCancelRedeem ? (
                     <th className="px-4 py-3 text-right font-medium">Action</th>
                   ) : null}
                 </tr>
@@ -196,9 +203,9 @@ export function HistoryClient({
                     <td className="px-4 py-3 whitespace-nowrap text-muted">
                       {row.expiresAt ? formatDateTime(new Date(row.expiresAt), timezone, false) : "—"}
                     </td>
-                    {history.enableCancelEarn ? (
+                    {history.enableCancelEarn || history.enableCancelRedeem ? (
                       <td className="px-4 py-3 text-right">
-                        {row.type === "EARN" && row.activityId ? (
+                        {history.enableCancelEarn && row.type === "EARN" && row.activityId ? (
                           <button
                             type="button"
                             className="btn-ghost px-3 py-1.5 text-[12px]"
@@ -207,6 +214,22 @@ export function HistoryClient({
                             onClick={() =>
                               setCancelEarn({
                                 activityId: row.activityId!,
+                                remaining: row.cancellableAmount,
+                              })
+                            }
+                          >
+                            Cancel
+                          </button>
+                        ) : null}
+                        {history.enableCancelRedeem && row.type === "REDEEM" ? (
+                          <button
+                            type="button"
+                            className="btn-ghost px-3 py-1.5 text-[12px]"
+                            disabled={!row.canCancel}
+                            title={row.cancelUnavailableReason ?? undefined}
+                            onClick={() =>
+                              setCancelRedeem({
+                                ledgerId: row.id,
                                 remaining: row.cancellableAmount,
                               })
                             }
@@ -286,6 +309,19 @@ export function HistoryClient({
             if (typeof nextAvailable === "number") setAvailableNow(nextAvailable);
             await afterLedgerChange();
             setCancelEarn(null);
+          }}
+        />
+      ) : null}
+      {cancelRedeem ? (
+        <CancelRedeemModal
+          memberId={memberId}
+          ledgerId={cancelRedeem.ledgerId}
+          remaining={cancelRedeem.remaining}
+          onClose={() => setCancelRedeem(null)}
+          onSaved={async (nextAvailable) => {
+            if (typeof nextAvailable === "number") setAvailableNow(nextAvailable);
+            await afterLedgerChange();
+            setCancelRedeem(null);
           }}
         />
       ) : null}

@@ -23,6 +23,7 @@ export default async function MemberLayout({
       earnedTotal: member.earnedTotal,
       redeemedTotal: member.redeemedTotal,
       cancelledTotal: member.cancelledTotal,
+      cancelledRedeemTotal: member.cancelledRedeemTotal,
       expiredTotal: member.expiredTotal,
       unpostedExpired: member.unpostedExpired,
       timezone: member.timezone,

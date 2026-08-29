@@ -32,6 +32,7 @@ enum LedgerType {
   REDEEM
   EXPIRE
   CANCEL
+  CANCEL_REDEEM
 }
 
 model Admin {
@@ -103,6 +104,7 @@ model PointLot {
   originalAmount      Int                 @map("original_amount")
   remainingAmount     Int                 @map("remaining_amount")
   cancelledAmount     Int                 @default(0) @map("cancelled_amount")
+  restoredAmount      Int                 @default(0) @map("restored_amount")
   earnedAt            DateTime            @map("earned_at") @db.DateTime(3)
   expiresAt           DateTime            @map("expires_at") @db.DateTime(3)
   expirationInterval  ExpirationInterval  @map("expiration_interval")
@@ -124,6 +126,7 @@ model LedgerEntry {
   amount           Int
   occurredAt       DateTime   @map("occurred_at") @db.DateTime(3)
   activityId       BigInt?    @map("activity_id")
+  sourceLedgerId   BigInt?    @map("source_ledger_id")
   note             String?    @db.VarChar(500)
   createdByAdminId BigInt?    @map("created_by_admin_id")
   createdAt        DateTime   @default(now()) @map("created_at") @db.DateTime(3)
@@ -135,6 +138,7 @@ model LedgerEntry {
 
   @@index([memberId, occurredAt])
   @@index([memberId, type])
+  @@index([sourceLedgerId])
   @@map("ledger_entries")
 }
 

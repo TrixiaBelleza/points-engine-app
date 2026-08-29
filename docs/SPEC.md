@@ -85,6 +85,7 @@ Answer these in place. Implementation should follow this list, not buried commen
 | Q7 | Can activity points be **0** or **negative**? | No negatives on Create Activity | No negatives |
 | Q8 | Can the admin **backdate** an activity? | Yes; `occurred_at` defaults to now | Yes |
 | Q9 | Can an earn be cancelled? | Feature-flagged full or partial cancellation of unexpired remaining points | `ENABLE_CANCEL_EARN` |
+| Q9b | Can a redemption be cancelled? | Feature-flagged full or partial cancellation while consumed lots are unexpired | `ENABLE_CANCEL_REDEEM` |
 | Q10 | Redemption: FIFO or FEFO? | **FEFO** | FEFO |
 | Q11 | Redemption amount? | Any integer ≥ 1, up to available | Any integer |
 | Q12 | Points precision? | Integer only | Integer |
@@ -95,7 +96,7 @@ Answer these in place. Implementation should follow this list, not buried commen
 | Q16 | Interval change rewrite existing lots? | **No.** Snapshotted at earn time | No |
 | Q17 | Member-level expiration override? | No | No |
 | Q18 | Create Activity from the members list? | Only on the member history page | History page |
-| Q19 | History row types? | Earn + redeem + cancel + expire | Earn / Redeem / Cancel / Expire |
+| Q19 | History row types? | Earn + redeem + cancel + cancel redeem + expire | Earn / Redeem / Cancel / Cancel redeem / Expire |
 | Q20 | Soft-delete members? | Deactivate | Deactivate |
 | Q21 | Timezone if admin travels? | Always app timezone from program settings | App timezone |
 | Q22 | Feb 29 / month-end? | MySQL `DATE_ADD` (§8.2) | DATE_ADD |
@@ -143,7 +144,7 @@ Answer these in place. Implementation should follow this list, not buried commen
 9. **No self-serve accounts.** Login only. Admins are provisioned on `/admins`. Own password is changed in Settings. **Set password** on Admins is for **admin** accounts only — never a superadmin (confirmed).
 10. **Program settings live in a JSON file** (one file per environment). MySQL is not the source of truth for expiration or tiers.
 11. **Two deployed instances:** production and staging (separate DBs, separate settings files, two public URLs).
-12. **Earn cancellation is feature-flagged** via `ENABLE_CANCEL_EARN`. History includes Cancel only when that env var is enabled.
+12. **Earn and redeem cancellation are feature-flagged** via `ENABLE_CANCEL_EARN` and `ENABLE_CANCEL_REDEEM`.
 
 ---
 
@@ -488,7 +489,7 @@ Idempotent: skip lots already at 0.
 
 ### 8.6 Earn cancellation
 
-`ENABLE_CANCEL_EARN` is an instance env var (unset defaults to `true`). When `false`, no Cancel action is rendered and the cancellation API is unavailable.
+`ENABLE_CANCEL_EARN` is an instance env var (unset defaults to `true`). When `false`, no Cancel action is rendered on earns and the cancellation API is unavailable.
 
 - An admin may fully cancel an earn's remaining points or partially cancel an integer amount.
 - Cancellation applies only to the selected earn's lot; it is not FEFO.
@@ -496,6 +497,14 @@ Idempotent: skip lots already at 0.
 - If an earn was partially redeemed, only its remaining unexpired points can be cancelled.
 - Full cancellation reduces the lot to zero. Partial cancellation reduces its remaining amount by the cancelled amount.
 - Record an append-only `CANCEL` ledger entry and a lot consumption.
+
+### 8.6.1 Redeem cancellation
+
+`ENABLE_CANCEL_REDEEM` is an instance env var (unset defaults to `true`). When `false`, no Cancel action is rendered on redemptions.
+
+- An admin may fully or partially cancel a redemption while the lots it consumed are still unexpired.
+- Restoration is applied back onto those lots (reverse of the original consumption).
+- Record an append-only `CANCEL_REDEEM` ledger entry.
 
 ### 8.7 Concurrency
 
@@ -714,6 +723,7 @@ REST JSON. Session cookie required **except** `POST /api/auth/login` and **`GET 
 | POST | `/api/members` | create |
 | GET | `/api/members/:id` | header: name, tier, available, `earned_total`, `redeemed_total`, `cancelled_total`, `expired_total`; profile fields + qualifying |
 | POST | `/api/members/:id/activities/:activityId/cancel` | Fully or partially cancel the selected earn's remaining points when enabled |
+| POST | `/api/members/:id/redemptions/:ledgerId/cancel` | Fully or partially cancel a redemption when enabled |
 | PATCH | `/api/members/:id` | name, phone, status |
 | GET | `/api/members/:id/history?range=3m\|6m\|1y\|all` | ledger rows |
 | GET | `/api/members/:id/expiration` | next when + amount (profile) |
