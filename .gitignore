@@ -12,3 +12,8 @@ dist
 coverage
 prisma/*.db
 tsconfig.tsbuildinfo
+tests/robot/results/
+output.xml
+log.html
+report.html
+selenium-screenshot-*.png
