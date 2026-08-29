@@ -1,0 +1,52 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+  --paper: #f3efe4;
+  --cream: #fffdf8;
+  --ink: #1a1814;
+  --muted: #6b6458;
+  --line: #e4ddd0;
+  --pine: #1b4d3e;
+}
+
+html,
+body {
+  min-height: 100%;
+}
+
+body {
+  background:
+    radial-gradient(1200px 500px at 10% -10%, rgba(27, 77, 62, 0.07), transparent 50%),
+    var(--paper);
+  color: var(--ink);
+}
+
+@layer components {
+  .field {
+    @apply block w-full rounded-lg border border-line bg-cream px-3 py-2.5 text-[15px] text-ink outline-none transition;
+  }
+  .field:focus {
+    @apply border-pine ring-2 ring-pine/20;
+  }
+  .label {
+    @apply mb-1.5 block text-[13px] font-medium text-ink;
+  }
+  .hint {
+    @apply mt-1.5 text-[13px] leading-snug text-muted;
+  }
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-[14px] font-semibold transition disabled:cursor-not-allowed disabled:opacity-50;
+  }
+  .btn-primary {
+    @apply btn bg-pine text-cream hover:bg-pine-hover;
+  }
+  .btn-ghost {
+    @apply btn border border-line bg-transparent text-ink hover:bg-ink/[0.04];
+  }
+  .btn-danger {
+    @apply btn bg-danger text-white hover:bg-red-800;
+  }
+}

@@ -1,0 +1,151 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+enum AdminRole {
+  superadmin
+  admin
+}
+
+enum AdminStatus {
+  active
+  inactive
+}
+
+enum MemberStatus {
+  active
+  inactive
+}
+
+enum ExpirationInterval {
+  six_months @map("6_months")
+  one_year   @map("1_year")
+}
+
+enum LedgerType {
+  EARN
+  REDEEM
+  EXPIRE
+}
+
+model Admin {
+  id           BigInt      @id @default(autoincrement())
+  email        String      @unique @db.VarChar(255)
+  passwordHash String      @map("password_hash") @db.VarChar(255)
+  name         String      @db.VarChar(120)
+  role         AdminRole
+  status       AdminStatus @default(active)
+  createdAt    DateTime    @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt    DateTime    @updatedAt @map("updated_at") @db.DateTime(3)
+
+  activities    Activity[]
+  ledgerEntries LedgerEntry[]
+
+  @@map("admins")
+}
+
+model Member {
+  id             BigInt       @id @default(autoincrement())
+  name           String       @db.VarChar(80)
+  contactNumber  String       @unique @map("contact_number") @db.VarChar(20)
+  status         MemberStatus @default(active)
+  createdAt      DateTime     @default(now()) @map("created_at") @db.DateTime(3)
+  updatedAt      DateTime     @updatedAt @map("updated_at") @db.DateTime(3)
+
+  activities    Activity[]
+  pointLots     PointLot[]
+  ledgerEntries LedgerEntry[]
+
+  @@map("members")
+}
+
+model ActivityType {
+  id        BigInt  @id @default(autoincrement())
+  name      String  @unique @db.VarChar(80)
+  isActive  Boolean @default(true) @map("is_active")
+  sortOrder Int     @default(0) @map("sort_order")
+
+  activities Activity[]
+
+  @@map("activity_types")
+}
+
+model Activity {
+  id               BigInt   @id @default(autoincrement())
+  memberId         BigInt   @map("member_id")
+  activityTypeId   BigInt   @map("activity_type_id")
+  points           Int
+  occurredAt       DateTime @map("occurred_at") @db.DateTime(3)
+  note             String?  @db.VarChar(500)
+  createdByAdminId BigInt   @map("created_by_admin_id")
+  createdAt        DateTime @default(now()) @map("created_at") @db.DateTime(3)
+
+  member         Member       @relation(fields: [memberId], references: [id])
+  activityType   ActivityType @relation(fields: [activityTypeId], references: [id])
+  createdByAdmin Admin        @relation(fields: [createdByAdminId], references: [id])
+  pointLot       PointLot?
+  ledgerEntries  LedgerEntry[]
+
+  @@index([memberId, occurredAt])
+  @@map("activities")
+}
+
+model PointLot {
+  id                  BigInt              @id @default(autoincrement())
+  memberId            BigInt              @map("member_id")
+  activityId          BigInt              @unique @map("activity_id")
+  originalAmount      Int                 @map("original_amount")
+  remainingAmount     Int                 @map("remaining_amount")
+  earnedAt            DateTime            @map("earned_at") @db.DateTime(3)
+  expiresAt           DateTime            @map("expires_at") @db.DateTime(3)
+  expirationInterval  ExpirationInterval  @map("expiration_interval")
+  createdAt           DateTime            @default(now()) @map("created_at") @db.DateTime(3)
+
+  member        Member           @relation(fields: [memberId], references: [id])
+  activity      Activity         @relation(fields: [activityId], references: [id])
+  consumptions  LotConsumption[]
+
+  @@index([memberId, expiresAt])
+  @@index([expiresAt, remainingAmount])
+  @@map("point_lots")
+}
+
+model LedgerEntry {
+  id               BigInt     @id @default(autoincrement())
+  memberId         BigInt     @map("member_id")
+  type             LedgerType
+  amount           Int
+  occurredAt       DateTime   @map("occurred_at") @db.DateTime(3)
+  activityId       BigInt?    @map("activity_id")
+  note             String?    @db.VarChar(500)
+  createdByAdminId BigInt?    @map("created_by_admin_id")
+  createdAt        DateTime   @default(now()) @map("created_at") @db.DateTime(3)
+
+  member         Member           @relation(fields: [memberId], references: [id])
+  activity       Activity?        @relation(fields: [activityId], references: [id])
+  createdByAdmin Admin?           @relation(fields: [createdByAdminId], references: [id])
+  consumptions   LotConsumption[]
+
+  @@index([memberId, occurredAt])
+  @@index([memberId, type])
+  @@map("ledger_entries")
+}
+
+model LotConsumption {
+  id            BigInt @id @default(autoincrement())
+  lotId         BigInt @map("lot_id")
+  ledgerEntryId BigInt @map("ledger_entry_id")
+  amount        Int
+
+  lot         PointLot    @relation(fields: [lotId], references: [id])
+  ledgerEntry LedgerEntry @relation(fields: [ledgerEntryId], references: [id])
+
+  @@index([lotId])
+  @@index([ledgerEntryId])
+  @@map("lot_consumptions")
+}
