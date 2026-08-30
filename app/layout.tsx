@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Figtree, Fraunces } from "next/font/google";
+import { appDocumentTitle } from "@/lib/env";
 import "./globals.css";
 
 const display = Fraunces({
@@ -14,10 +15,14 @@ const sans = Figtree({
   display: "swap",
 });
 
-export const metadata: Metadata = {
-  title: "Points Engine",
-  description: "Admin loyalty — members, points, and program settings.",
-};
+export const dynamic = "force-dynamic";
+
+export function generateMetadata(): Metadata {
+  return {
+    title: appDocumentTitle(),
+    description: "Admin loyalty — members, points, and program settings.",
+  };
+}
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (

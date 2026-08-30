@@ -1,5 +1,29 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { cancelEarnEnabled, cancelRedeemEnabled } from "./env";
+import { appDocumentTitle, cancelEarnEnabled, cancelRedeemEnabled } from "./env";
+
+describe("appDocumentTitle", () => {
+  const original = process.env.APP_ENV;
+
+  afterEach(() => {
+    if (original === undefined) delete process.env.APP_ENV;
+    else process.env.APP_ENV = original;
+  });
+
+  it("uses LOCAL for development", () => {
+    process.env.APP_ENV = "development";
+    expect(appDocumentTitle()).toBe("LOCAL - Points Engine");
+  });
+
+  it("uses STG for staging", () => {
+    process.env.APP_ENV = "staging";
+    expect(appDocumentTitle()).toBe("STG - Points Engine");
+  });
+
+  it("uses PROD for production", () => {
+    process.env.APP_ENV = "production";
+    expect(appDocumentTitle()).toBe("PROD - Points Engine");
+  });
+});
 
 describe("ENABLE_CANCEL_EARN", () => {
   const original = process.env.ENABLE_CANCEL_EARN;

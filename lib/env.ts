@@ -10,6 +10,13 @@ export function getAppEnv(): AppEnv {
   return "development";
 }
 
+/** Browser tab title: LOCAL / STG / PROD from APP_ENV. */
+export function appDocumentTitle(): string {
+  const appEnv = getAppEnv();
+  const prefix = appEnv === "production" ? "PROD" : appEnv === "staging" ? "STG" : "LOCAL";
+  return `${prefix} - Points Engine`;
+}
+
 export function env() {
   const appEnv = getAppEnv();
   const sessionSecret = read("SESSION_SECRET");
