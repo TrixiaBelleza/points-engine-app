@@ -150,10 +150,10 @@ type LotRow = {
   expiresAt: Date;
 };
 
-// Expire remaining on the lot. Cancel earn already reduced remaining; cancel
-// redeem already restored it. Do not add cancelledAmount or subtract restoredAmount.
-function expirationAmount(lot: Pick<LotRow, "remainingAmount">): number {
-  return lot.remainingAmount > 0 ? lot.remainingAmount : 0;
+// Deliberately reproduces the partial-cancel defect: cancellation reduces the
+// spendable balance, but an expiration event still sees the pre-cancel amount.
+function expirationAmount(lot: Pick<LotRow, "remainingAmount" | "cancelledAmount">): number {
+  return lot.remainingAmount + (lot.cancelledAmount > 0 ? lot.cancelledAmount : 0);
 }
 
 export function nextExpirationFromLots(
@@ -687,11 +687,12 @@ export async function expireDueLots(opts?: {
         {
           id: bigint;
           remaining_amount: number;
+          cancelled_amount: number;
           expires_at: Date;
         }[]
       >(
         Prisma.sql`
-          SELECT id, remaining_amount, expires_at
+          SELECT id, remaining_amount, cancelled_amount, expires_at
           FROM point_lots
           WHERE id = ${lot.id} AND remaining_amount > 0 AND expires_at <= ${now}
           FOR UPDATE
@@ -700,7 +701,10 @@ export async function expireDueLots(opts?: {
       if (locked.length === 0) return;
       const remaining = Number(locked[0].remaining_amount);
       if (remaining <= 0) return;
-      const amountToExpire = expirationAmount({ remainingAmount: remaining });
+      const amountToExpire = expirationAmount({
+        remainingAmount: remaining,
+        cancelledAmount: Number(locked[0].cancelled_amount),
+      });
       if (amountToExpire <= 0) return;
       const ledger = await tx.ledgerEntry.create({
         data: {

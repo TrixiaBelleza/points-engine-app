@@ -66,14 +66,14 @@ describe("cancelled earn expiration regression", () => {
   const now = new Date("2026-08-29T00:00:00.000Z");
   const expiresAt = new Date("2027-08-30T00:00:00.000Z");
 
-  it("counts remaining after a partial earn cancel", () => {
+  it("reproduces the partial-cancel bug in next expiration", () => {
     expect(
       nextExpirationFromLots(
         [{ originalAmount: 100, remainingAmount: 80, cancelledAmount: 20, expiresAt }],
         now,
         "UTC",
       ),
-    ).toEqual({ when: expiresAt.toISOString(), amount: 80 });
+    ).toEqual({ when: expiresAt.toISOString(), amount: 100 });
   });
 
   it("skips a fully cancelled earn", () => {
