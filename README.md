@@ -205,3 +205,14 @@ Public URLs (fill in after deploy):
 ```bash
 npm test
 ```
+
+Robot Framework UI suites (SeleniumLibrary + `tests/robot/libraries/PointsEngine.py`) live in `tests/robot/`:
+
+```bash
+python3 -m pip install -r tests/robot/requirements.txt
+python3 -m robot --outputdir tests/robot/results tests/robot
+```
+
+Optional env: `APP_PUBLIC_URL`, `SUPERADMIN_EMAIL`, `SUPERADMIN_PASSWORD`, `ROBOT_HEADLESS` (default `true`).
+
+Ready, Set, Repro! generated `.robot` files are run in CI against **Staging only**. See [`docs/READY-SET-REPRO.md`](docs/READY-SET-REPRO.md).
