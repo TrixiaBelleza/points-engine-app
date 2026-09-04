@@ -8,7 +8,7 @@ export const GET = handle(async (_req, ctx: { params: Promise<{ id: string }> })
   await requireSession();
   const { id } = await ctx.params;
   if (!/^\d+$/.test(id)) throw new HttpError(404, "Member not found.");
-  const member = await getMemberSnapshot(BigInt(id));
+  const member = await getMemberSnapshot(Number(id));
   if (!member.nextExpiration || member.available <= 0) {
     return json({
       when: null,

@@ -1,22 +1,22 @@
 import { DateTime } from "luxon";
 import { describe, expect, it } from "vitest";
 import { computeExpiresAt, lookbackThreshold } from "./expiration";
-import { mysqlAddMonths, mysqlAddYears } from "./mysql-date";
+import { calendarAddMonths, calendarAddYears } from "./mysql-date";
 import { normalizePhMobile } from "./phone";
 import { resolveTier } from "./tiers";
 import { DEFAULT_PROGRAM_SETTINGS, validateProgramSettings } from "./settings-types";
 import { nextExpirationFromLots } from "./members";
 
-describe("MySQL DATE_ADD clip", () => {
+describe("calendar arithmetic clip", () => {
   it("clips Aug 31 + 6 months to Feb 28 (non-leap)", () => {
-    expect(mysqlAddMonths({ year: 2026, month: 8, day: 31 }, 6)).toEqual({
+    expect(calendarAddMonths({ year: 2026, month: 8, day: 31 }, 6)).toEqual({
       year: 2027,
       month: 2,
       day: 28,
     });
   });
   it("clips Feb 29 + 1 year to Feb 28", () => {
-    expect(mysqlAddYears({ year: 2024, month: 2, day: 29 }, 1)).toEqual({
+    expect(calendarAddYears({ year: 2024, month: 2, day: 29 }, 1)).toEqual({
       year: 2025,
       month: 2,
       day: 28,
@@ -128,7 +128,7 @@ describe("cancelled redeem expiration regression", () => {
   });
 });
 
-describe("lookback DATE_SUB", () => {
+describe("lookback calendar subtraction", () => {
   it("subtracts 3 months clipping end-of-month", () => {
     const now = DateTime.fromISO("2026-08-31T08:00:00", { zone: "utc" }).toJSDate();
     const from = lookbackThreshold(now, "3_months");

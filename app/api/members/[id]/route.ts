@@ -3,9 +3,9 @@ import { json, readJson, HttpError } from "@/lib/http";
 import { getMemberSnapshot, updateMember } from "@/lib/members";
 import { requireSession } from "@/lib/session";
 
-function parseId(id: string): bigint {
+function parseId(id: string): number {
   if (!/^\d+$/.test(id)) throw new HttpError(404, "Member not found.");
-  return BigInt(id);
+  return Number(id);
 }
 
 export const GET = handle(async (_req, ctx: { params: Promise<{ id: string }> }) => {

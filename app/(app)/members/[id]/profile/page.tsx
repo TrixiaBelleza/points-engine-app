@@ -10,7 +10,7 @@ function fmtPoints(n: number): string {
 export default async function ProfilePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   if (!/^\d+$/.test(id)) notFound();
-  const member = await getMemberSnapshot(BigInt(id));
+  const member = await getMemberSnapshot(Number(id));
   const more =
     member.tier.nextTier && member.tier.nextTier.pointsNeeded > 0
       ? `${fmtPoints(member.tier.nextTier.pointsNeeded)} more to ${member.tier.nextTier.name}`

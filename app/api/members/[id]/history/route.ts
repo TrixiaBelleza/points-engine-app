@@ -16,5 +16,5 @@ export const GET = handle(async (req, ctx: { params: Promise<{ id: string }> }) 
       ? rangeParam
       : "3m";
   const page = Number(new URL(req.url).searchParams.get("page") ?? "1");
-  return json(await getHistory(BigInt(id), range, page), { headers: { "Cache-Control": "no-store" } });
+  return json(await getHistory(Number(id), range, page), { headers: { "Cache-Control": "no-store" } });
 });

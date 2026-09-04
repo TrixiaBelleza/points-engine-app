@@ -3,7 +3,7 @@ generator client {
 }
 
 datasource db {
-  provider = "mysql"
+  provider = "sqlite"
   url      = env("DATABASE_URL")
 }
 
@@ -36,14 +36,14 @@ enum LedgerType {
 }
 
 model Admin {
-  id           BigInt      @id @default(autoincrement())
-  email        String      @unique @db.VarChar(255)
-  passwordHash String      @map("password_hash") @db.VarChar(255)
-  name         String      @db.VarChar(120)
+  id           Int         @id @default(autoincrement())
+  email        String      @unique
+  passwordHash String      @map("password_hash")
+  name         String
   role         AdminRole
   status       AdminStatus @default(active)
-  createdAt    DateTime    @default(now()) @map("created_at") @db.DateTime(3)
-  updatedAt    DateTime    @updatedAt @map("updated_at") @db.DateTime(3)
+  createdAt    DateTime    @default(now()) @map("created_at")
+  updatedAt    DateTime    @updatedAt @map("updated_at")
 
   activities    Activity[]
   ledgerEntries LedgerEntry[]
@@ -52,12 +52,12 @@ model Admin {
 }
 
 model Member {
-  id             BigInt       @id @default(autoincrement())
-  name           String       @db.VarChar(80)
-  contactNumber  String       @unique @map("contact_number") @db.VarChar(20)
+  id             Int          @id @default(autoincrement())
+  name           String
+  contactNumber  String       @unique @map("contact_number")
   status         MemberStatus @default(active)
-  createdAt      DateTime     @default(now()) @map("created_at") @db.DateTime(3)
-  updatedAt      DateTime     @updatedAt @map("updated_at") @db.DateTime(3)
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
 
   activities    Activity[]
   pointLots     PointLot[]
@@ -67,8 +67,8 @@ model Member {
 }
 
 model ActivityType {
-  id        BigInt  @id @default(autoincrement())
-  name      String  @unique @db.VarChar(80)
+  id        Int     @id @default(autoincrement())
+  name      String  @unique
   isActive  Boolean @default(true) @map("is_active")
   sortOrder Int     @default(0) @map("sort_order")
 
@@ -78,14 +78,14 @@ model ActivityType {
 }
 
 model Activity {
-  id               BigInt   @id @default(autoincrement())
-  memberId         BigInt   @map("member_id")
-  activityTypeId   BigInt   @map("activity_type_id")
+  id               Int      @id @default(autoincrement())
+  memberId         Int      @map("member_id")
+  activityTypeId   Int      @map("activity_type_id")
   points           Int
-  occurredAt       DateTime @map("occurred_at") @db.DateTime(3)
-  note             String?  @db.VarChar(500)
-  createdByAdminId BigInt   @map("created_by_admin_id")
-  createdAt        DateTime @default(now()) @map("created_at") @db.DateTime(3)
+  occurredAt       DateTime @map("occurred_at")
+  note             String?
+  createdByAdminId Int      @map("created_by_admin_id")
+  createdAt        DateTime @default(now()) @map("created_at")
 
   member         Member       @relation(fields: [memberId], references: [id])
   activityType   ActivityType @relation(fields: [activityTypeId], references: [id])
@@ -98,17 +98,17 @@ model Activity {
 }
 
 model PointLot {
-  id                  BigInt              @id @default(autoincrement())
-  memberId            BigInt              @map("member_id")
-  activityId          BigInt              @unique @map("activity_id")
+  id                  Int                 @id @default(autoincrement())
+  memberId            Int                 @map("member_id")
+  activityId          Int                 @unique @map("activity_id")
   originalAmount      Int                 @map("original_amount")
   remainingAmount     Int                 @map("remaining_amount")
   cancelledAmount     Int                 @default(0) @map("cancelled_amount")
   restoredAmount      Int                 @default(0) @map("restored_amount")
-  earnedAt            DateTime            @map("earned_at") @db.DateTime(3)
-  expiresAt           DateTime            @map("expires_at") @db.DateTime(3)
+  earnedAt            DateTime            @map("earned_at")
+  expiresAt           DateTime            @map("expires_at")
   expirationInterval  ExpirationInterval  @map("expiration_interval")
-  createdAt           DateTime            @default(now()) @map("created_at") @db.DateTime(3)
+  createdAt           DateTime            @default(now()) @map("created_at")
 
   member        Member           @relation(fields: [memberId], references: [id])
   activity      Activity         @relation(fields: [activityId], references: [id])
@@ -120,16 +120,16 @@ model PointLot {
 }
 
 model LedgerEntry {
-  id               BigInt     @id @default(autoincrement())
-  memberId         BigInt     @map("member_id")
+  id               Int        @id @default(autoincrement())
+  memberId         Int        @map("member_id")
   type             LedgerType
   amount           Int
-  occurredAt       DateTime   @map("occurred_at") @db.DateTime(3)
-  activityId       BigInt?    @map("activity_id")
-  sourceLedgerId   BigInt?    @map("source_ledger_id")
-  note             String?    @db.VarChar(500)
-  createdByAdminId BigInt?    @map("created_by_admin_id")
-  createdAt        DateTime   @default(now()) @map("created_at") @db.DateTime(3)
+  occurredAt       DateTime   @map("occurred_at")
+  activityId       Int?       @map("activity_id")
+  sourceLedgerId   Int?       @map("source_ledger_id")
+  note             String?
+  createdByAdminId Int?       @map("created_by_admin_id")
+  createdAt        DateTime   @default(now()) @map("created_at")
 
   member         Member           @relation(fields: [memberId], references: [id])
   activity       Activity?        @relation(fields: [activityId], references: [id])
@@ -143,9 +143,9 @@ model LedgerEntry {
 }
 
 model LotConsumption {
-  id            BigInt @id @default(autoincrement())
-  lotId         BigInt @map("lot_id")
-  ledgerEntryId BigInt @map("ledger_entry_id")
+  id            Int @id @default(autoincrement())
+  lotId         Int @map("lot_id")
+  ledgerEntryId Int @map("ledger_entry_id")
   amount        Int
 
   lot         PointLot    @relation(fields: [lotId], references: [id])

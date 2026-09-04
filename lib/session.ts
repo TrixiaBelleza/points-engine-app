@@ -66,7 +66,7 @@ export async function requireSession(): Promise<Session> {
     throw new HttpError(401, "Unauthorized");
   }
   const { prisma } = await import("./db");
-  const admin = await prisma.admin.findUnique({ where: { id: BigInt(session.adminId) } });
+  const admin = await prisma.admin.findUnique({ where: { id: session.adminId } });
   if (!admin || admin.status !== "active") {
     const { HttpError } = await import("./http");
     throw new HttpError(401, "Unauthorized");

@@ -8,7 +8,7 @@ export const POST = handle(async (req, ctx: { params: Promise<{ id: string }> })
   const { id } = await ctx.params;
   if (!/^\d+$/.test(id)) throw new HttpError(404, "Member not found.");
   const body = await readJson<{ amount?: number; occurredAt?: string; note?: string }>(req);
-  const member = await redeemPoints(BigInt(id), session, {
+  const member = await redeemPoints(Number(id), session, {
     amount: Number(body.amount),
     occurredAt: body.occurredAt ?? "",
     note: body.note,

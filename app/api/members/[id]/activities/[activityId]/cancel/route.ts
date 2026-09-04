@@ -11,7 +11,7 @@ export const POST = handle(
       throw new HttpError(404, "Earn activity not found.");
     }
     const body = await readJson<{ amount?: number }>(_req);
-    const member = await cancelEarn(BigInt(id), BigInt(activityId), session, {
+    const member = await cancelEarn(Number(id), Number(activityId), session, {
       amount: Number(body.amount),
     });
     return json({ member });

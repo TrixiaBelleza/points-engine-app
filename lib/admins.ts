@@ -41,7 +41,7 @@ export async function changeOwnPassword(
   newPassword: string,
 ): Promise<void> {
   assertPassword(newPassword);
-  const admin = await prisma.admin.findUnique({ where: { id: BigInt(adminId) } });
+  const admin = await prisma.admin.findUnique({ where: { id: adminId } });
   if (!admin) throw new HttpError(401, "Unauthorized");
   const ok = await compare(currentPassword, admin.passwordHash);
   if (!ok) throw new HttpError(400, "Current password is incorrect.");
@@ -124,7 +124,7 @@ export async function createAdmin(
 
 export async function setAdminPassword(actor: Session, targetId: number, newPassword: string) {
   assertPassword(newPassword);
-  const target = await prisma.admin.findUnique({ where: { id: BigInt(targetId) } });
+  const target = await prisma.admin.findUnique({ where: { id: targetId } });
   if (!target) throw new HttpError(404, "Admin not found.");
   if (target.role === "superadmin") {
     throw new HttpError(403, "Superadmin passwords cannot be reset from the Admins page.");
@@ -139,7 +139,7 @@ export async function setAdminPassword(actor: Session, targetId: number, newPass
 }
 
 export async function setAdminStatus(actor: Session, targetId: number, status: "active" | "inactive") {
-  const target = await prisma.admin.findUnique({ where: { id: BigInt(targetId) } });
+  const target = await prisma.admin.findUnique({ where: { id: targetId } });
   if (!target) throw new HttpError(404, "Admin not found.");
   if (status === "inactive" && target.role === "superadmin") {
     const remaining = await prisma.admin.count({

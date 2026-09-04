@@ -1,5 +1,5 @@
 import { DateTime } from "luxon";
-import { mysqlAddMonths, mysqlAddYears, type Ymd } from "./mysql-date";
+import { calendarAddMonths, calendarAddYears, type Ymd } from "./mysql-date";
 import type { ExpirationIntervalId } from "./settings-types";
 
 export function computeExpiresAt(
@@ -12,7 +12,8 @@ export function computeExpiresAt(
     throw new Error(`Invalid occurred_at or timezone (${timezone})`);
   }
   const earnDate: Ymd = { year: local.year, month: local.month, day: local.day };
-  const anniversary = interval === "1_year" ? mysqlAddYears(earnDate, 1) : mysqlAddMonths(earnDate, 6);
+  const anniversary =
+    interval === "1_year" ? calendarAddYears(earnDate, 1) : calendarAddMonths(earnDate, 6);
   const expireLocal = DateTime.fromObject(
     {
       year: anniversary.year,
@@ -34,7 +35,7 @@ export function computeExpiresAt(
 export function lookbackThreshold(now: Date, period: "3_months" | "6_months" | "1_year"): Date {
   const months = period === "3_months" ? 3 : period === "6_months" ? 6 : 12;
   const utc = DateTime.fromJSDate(now, { zone: "utc" });
-  const shifted = mysqlAddMonths({ year: utc.year, month: utc.month, day: utc.day }, -months);
+  const shifted = calendarAddMonths({ year: utc.year, month: utc.month, day: utc.day }, -months);
   return utc
     .set({ year: shifted.year, month: shifted.month, day: shifted.day })
     .toJSDate();

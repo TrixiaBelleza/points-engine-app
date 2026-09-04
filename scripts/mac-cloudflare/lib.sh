@@ -1,6 +1,5 @@
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 DEPLOY="${ROOT}/deploy/mac-cloudflare"
-MYSQL="${MYSQL:-/usr/local/opt/mysql@5.7/bin/mysql}"
 
 load_instance_env() {
   local name="$1"

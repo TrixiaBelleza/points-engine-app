@@ -7,6 +7,6 @@ export const POST = handle(async (_req, ctx: { params: Promise<{ id: string }> }
   const session = await requireSession();
   const { id } = await ctx.params;
   if (!/^\d+$/.test(id)) throw new HttpError(404, "Member not found.");
-  const result = await expireMemberLots(BigInt(id), session);
+  const result = await expireMemberLots(Number(id), session);
   return json(result);
 });

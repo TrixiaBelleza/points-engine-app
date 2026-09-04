@@ -14,7 +14,7 @@ export default async function MemberLayout({
   const { id } = await params;
   if (!/^\d+$/.test(id)) notFound();
   try {
-    const member = await getMemberSnapshot(BigInt(id));
+    const member = await getMemberSnapshot(Number(id));
     const chrome = {
       id: member.id,
       name: member.name,

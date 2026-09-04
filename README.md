@@ -2,24 +2,17 @@
 
 Staff-only loyalty program: create members, log activities that award points, redeem, and see when remaining points expire. Members do not log in.
 
-Behavior follows [`docs/SPEC.md`](docs/SPEC.md). Program settings (expiration interval, timezone, tier rules) live in a **JSON file per instance**, not in MySQL. `GET /api/meta` is public so other systems (including ClouderaAI) can read version + settings without logging in.
+Behavior follows [`docs/SPEC.md`](docs/SPEC.md). Program settings (expiration interval, timezone, tier rules) live in a **JSON file per instance**, not in SQLite. `GET /api/meta` is public so other systems (including ClouderaAI) can read version + settings without logging in.
 
 ## Stack
 
 - Next.js 15 (App Router) + TypeScript
-- Prisma + **MySQL 5.7.40** locally (Homebrew `mysql@5.7`)
+- Prisma + **SQLite** (one database file per environment)
 - Session cookie + bcrypt
 - JSON file on the instance filesystem for program settings
 - In-process expire job every minute (`setInterval` on the Node server) to post `EXPIRE` ledger rows
 
 ## Local setup
-
-MySQL 5.7 must be running (`bind-address` 127.0.0.1 is fine):
-
-```bash
-/usr/local/opt/mysql@5.7/bin/mysql.server start
-mysql -h 127.0.0.1 -u root -e "CREATE DATABASE IF NOT EXISTS points_engine CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
-```
 
 ```bash
 cp .env.example .env
@@ -71,13 +64,13 @@ No cookie. `Cache-Control: no-store`. CORS `GET` from `*`.
 
 ## Env vars
 
-See `.env.example`. Production and staging each need their own `DATABASE_URL`, `APP_PUBLIC_URL`, `SESSION_SECRET`, and settings file.
+See `.env.example`. Production and staging each need their own SQLite `DATABASE_URL`, `APP_PUBLIC_URL`, `SESSION_SECRET`, and settings file.
 
 | Variable | Notes |
 |----------|--------|
 | `APP_ENV` | `development` \| `staging` \| `production` |
 | `APP_PUBLIC_URL` | Canonical URL for this instance |
-| `DATABASE_URL` | MySQL 5.7-compatible URL |
+| `DATABASE_URL` | SQLite URL, resolved relative to `prisma/schema.prisma` |
 | `SESSION_SECRET` | Cookie signing key (different per instance) |
 | `SUPERADMIN_EMAIL` / `SUPERADMIN_PASSWORD` | Seeded only when `admins` is empty; unset the password after first deploy |
 | `SETTINGS_FILE` | Optional path to this instance’s program-settings JSON |
@@ -131,25 +124,17 @@ curl -sS -H "Authorization: Bearer ${TOKEN}" \
 
 ## Deploy on Cloudera AI (prod + staging)
 
-Same git repo, **two Workbench Applications**, two public URLs, two databases, two settings files. Each Application is its own engine (process). Do not run one Next.js process and switch `APP_ENV`.
+Same git repo, **two Workbench Applications**, two public URLs, two SQLite files, and two settings files. Each Application is its own engine (process). Do not run one Next.js process and switch `APP_ENV`.
 
-Workbench hosts the web app. It does **not** provide MySQL. Point each `DATABASE_URL` at a MySQL 5.7-compatible server the engines can reach (two databases on one server is fine: `points_prod` and `points_staging`).
+The database files live in the shared project filesystem under `.data/production/` and `.data/staging/`. No external database service is required.
 
 ### 1. Project
 
 Create a Cloudera AI project and clone this repository into it.
 
-### 2. Databases (once)
+### 2. Databases
 
-From a Workbench session that can reach MySQL:
-
-```bash
-npx prisma db push
-# staging only, if you want demo members:
-# SEED_DEMO_DATA=true npx prisma db seed
-```
-
-Run that against **each** database (`DATABASE_URL` for prod, then staging). Or set `PRISMA_DB_PUSH=true` on the first Application start only.
+No manual provisioning is required. `scripts/cloudera-start.sh` creates the parent directory and runs `prisma db push` for SQLite whenever an Application starts. App boot seeds the first superadmin and activity types; staging also seeds demo members when `SEED_DEMO_DATA=true`.
 
 ### 3. Two Applications
 
@@ -163,7 +148,7 @@ Run that against **each** database (`DATABASE_URL` for prod, then staging). Or s
 | Subdomain | `points-prod` |
 | `APP_ENV` | `production` |
 | `APP_PUBLIC_URL` | `https://points-prod.<workbench-domain>` |
-| `DATABASE_URL` | `mysql://.../points_prod` |
+| `DATABASE_URL` | `file:../.data/production/points-engine.db` |
 | `SESSION_SECRET` | unique long string |
 | `ENABLE_CANCEL_EARN` | `true` |
 | `ENABLE_CANCEL_REDEEM` | `true` |
@@ -177,7 +162,7 @@ Run that against **each** database (`DATABASE_URL` for prod, then staging). Or s
 | Subdomain | `points-staging` |
 | `APP_ENV` | `staging` |
 | `APP_PUBLIC_URL` | `https://points-staging.<workbench-domain>` |
-| `DATABASE_URL` | `mysql://.../points_staging` |
+| `DATABASE_URL` | `file:../.data/staging/points-engine.db` |
 | `SESSION_SECRET` | a **different** unique long string |
 | `ENABLE_CANCEL_EARN` | `false` |
 | `ENABLE_CANCEL_REDEEM` | `false` |
@@ -185,7 +170,7 @@ Run that against **each** database (`DATABASE_URL` for prod, then staging). Or s
 
 Application-level env vars override project-level ones.
 
-If both Applications live in **one** project they share the filesystem — `APP_ENV` already picks `.data/production/` vs `.data/staging/`. Two projects is even cleaner.
+Both Applications must live in the **same project** so they can use the project filesystem. Separate `DATABASE_URL` and `APP_ENV` values keep their SQLite databases and settings isolated.
 
 Set `GIT_TAG` / `GIT_SHA` / `APP_VERSION` so `/api/meta` tells the truth (the start script fills SHA/tag from git when unset).
 

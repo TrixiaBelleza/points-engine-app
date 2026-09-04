@@ -2,7 +2,7 @@
 
 **Status:** Draft for review  
 **Date:** 2026-08-26  
-**Audience:** Product + engineering (admin web app; MySQL for members/ledger, JSON file for program settings)
+**Audience:** Product + engineering (admin web app; SQLite for members/ledger, JSON file for program settings)
 
 This spec is written so you can change decisions without rewriting the whole document. Anything marked **[Open]** is a product call. Chat decisions already locked are in the **Your decision** column.
 
@@ -16,7 +16,7 @@ An **admin-only** loyalty app. Staff create members, log activities that award p
 
 Members do **not** have their own login in v1. Staff sign in on `/login`. There is **no sign-up**. The first **superadmin** is seeded; further admins are created on the **Admins** page.
 
-**Program settings** (expiration interval, timezone, tier rules) are stored as **JSON on the instance filesystem**, not in MySQL. MySQL holds members, lots, ledger, and admin users.
+**Program settings** (expiration interval, timezone, tier rules) are stored as **JSON on the instance filesystem**, not in SQLite. SQLite holds members, lots, ledger, and admin users.
 
 ### Example
 
@@ -99,8 +99,8 @@ Answer these in place. Implementation should follow this list, not buried commen
 | Q19 | History row types? | Earn + redeem + cancel + cancel redeem + expire | Earn / Redeem / Cancel / Cancel redeem / Expire |
 | Q20 | Soft-delete members? | Deactivate | Deactivate |
 | Q21 | Timezone if admin travels? | Always app timezone from program settings | App timezone |
-| Q22 | Feb 29 / month-end? | MySQL `DATE_ADD` (§8.2) | DATE_ADD |
-| Q23 | Tech stack besides MySQL? | Next.js + TypeScript + Prisma; **MySQL 5.7.40** locally | Next.js + Prisma + 5.7.40 |
+| Q22 | Feb 29 / month-end? | Application calendar arithmetic (§8.2) | Clip to last valid day |
+| Q23 | Persistence stack? | Next.js + TypeScript + Prisma + SQLite | Prisma + SQLite |
 | Q24 | Silver threshold? | **250** | 250 |
 | Q25 | What counts toward tier? | Points **earned** in the lookback | Earns in period |
 | Q26 | Do redemptions/expirations lower tier metric? | **No** | No |
@@ -115,7 +115,7 @@ Answer these in place. Implementation should follow this list, not buried commen
 | Q35 | Password rules? | Min 8. Own change needs current password | Min 8 + current |
 | Q36 | Forgot password? | No email. Another admin Sets password on an **admin** only | No email; never superadmin |
 | Q37 | Who can edit program Settings? | Any signed-in superadmin or admin | Any staff |
-| Q38 | Where do expiration + tier rules live? | **JSON file** per environment, not MySQL | JSON file per instance |
+| Q38 | Where do expiration + tier rules live? | **JSON file** per environment, not SQLite | JSON file per instance |
 
 ---
 
@@ -142,7 +142,7 @@ Answer these in place. Implementation should follow this list, not buried commen
 
    Highest matching tier wins. Members list still shows **names only** — tier appears on the member header and profile.
 9. **No self-serve accounts.** Login only. Admins are provisioned on `/admins`. Own password is changed in Settings. **Set password** on Admins is for **admin** accounts only — never a superadmin (confirmed).
-10. **Program settings live in a JSON file** (one file per environment). MySQL is not the source of truth for expiration or tiers.
+10. **Program settings live in a JSON file** (one file per environment). SQLite is not the source of truth for expiration or tiers.
 11. **Two deployed instances:** production and staging (separate DBs, separate settings files, two public URLs).
 12. **Earn and redeem cancellation are feature-flagged** via `ENABLE_CANCEL_EARN` and `ENABLE_CANCEL_REDEEM`.
 
@@ -338,7 +338,7 @@ Success: stay signed in; show a short confirmation.
 
 #### Tiers
 
-- **Lookback period:** `3 months` · `6 months` · `1 year` (default **1 year**, rolling, same `DATE_ADD` rules as expiration)
+- **Lookback period:** `3 months` · `6 months` · `1 year` (default **1 year**, rolling, same calendar arithmetic rules as expiration)
 - Helper: `Tier uses points earned in this period, not the available balance. Redeeming or expiry does not lower the count; older earns falling out of the window can.`
 - Rules table (highest min wins):
 
@@ -443,9 +443,9 @@ Let `interval` be the **global program setting at earn time**. Ignore the earn�
 
 ```
 earn_date      = calendar date of occurred_at in app timezone
-anniversary    = DATE_ADD(earn_date, INTERVAL 6 MONTH)   -- or INTERVAL 1 YEAR
+anniversary    = calendar-add(earn_date, 6 months)       -- or 1 year
 expires_at     = anniversary + 1 day, at 00:00:00.000 in app timezone
-               (store UTC equivalent in MySQL DATETIME(3))
+               (store UTC equivalent as a Prisma DateTime)
 ```
 
 Points are spendable for the **entire anniversary calendar day**. They become unspendable at **00:00:00 the next local morning**.
@@ -454,7 +454,7 @@ Points are spendable for the **entire anniversary calendar day**. They become un
 - Worked example: same earn + **6 months** → **`2027-02-27 00:00:00`**.
 - Two earns on the same local date share the same `expires_at` (both 00:00 after the anniversary).
 
-**MySQL `DATE_ADD` on the date part (then +1 day):**
+**Calendar arithmetic on the date part (then +1 day):**
 
 - Earn date `2026-08-31` + 6 months → anniversary `2027-02-28` → expire **`2027-03-01 00:00:00`**.
 - Earn date `2024-02-29` + 1 year → anniversary `2025-02-28` → expire **`2025-03-01 00:00:00`**.
@@ -508,7 +508,7 @@ Idempotent: skip lots already at 0.
 
 ### 8.7 Concurrency
 
-Two admins (or double-submit) redeeming the same member: row-lock lots (`SELECT … FOR UPDATE`) inside the transaction so balance cannot go negative.
+SQLite serializes writes. Earn/redeem/cancel/expire operations keep their ledger and lot updates inside one Prisma interactive transaction. This is appropriate for the two small demo instances; a production multi-replica deployment would require a server database with explicit row locking.
 
 ### 8.8 Tiers
 
@@ -517,7 +517,7 @@ Two admins (or double-submit) redeeming the same member: row-lock lots (`SELECT 
 ```
 qualifying = SUM(ledger.amount)
              WHERE type = 'EARN'
-               AND occurred_at >= DATE_SUB(now(), INTERVAL {n} MONTH)
+               AND occurred_at >= calendar-subtract(now(), {n} months)
 ```
 
 `n` is 3, 6, or 12 from program settings (`tiers.lookbackPeriod`).
@@ -539,7 +539,7 @@ Same member, last 1 year, if an extra +400 earn on 4 Mar 2026 is in window → *
 
 ### 8.9 Program settings (JSON file)
 
-**Source of truth:** one JSON file per environment on that instance’s filesystem. Not a MySQL `settings` / `tiers` table.
+**Source of truth:** one JSON file per environment on that instance’s filesystem. Not a SQLite `settings` / `tiers` table.
 
 | Env | Example path |
 |-----|-------------|
@@ -547,7 +547,7 @@ Same member, last 1 year, if an extra +400 earn on 4 Mar 2026 is in window → *
 | Production | `.data/production/program-settings.json` |
 | Staging | `.data/staging/program-settings.json` |
 
-Override with `SETTINGS_FILE` if both Cloudera Applications share a project and you need a custom path. Same schema everywhere. Do **not** store program settings in MySQL.
+Override with `SETTINGS_FILE` if both Cloudera Applications share a project and you need a custom path. Same schema everywhere. Do **not** store program settings in SQLite.
 
 Guardrails:
 
@@ -586,11 +586,9 @@ Validate §7.8 before writing. Changing `interval` does **not** rewrite existing
 
 ---
 
-## 9. Data model (MySQL 5.7)
+## 9. Data model (SQLite)
 
-Target **MySQL 5.7.40** (local Homebrew `mysql@5.7`). Cloud may be RDS 8.0; keep SQL 5.7-safe.  
-Use `CHAR(36)` UUIDs or `BIGINT` autoincrement — **[Assumed] BIGINT**.  
-Store datetimes as **UTC** `DATETIME(3)`; convert to Settings timezone in the UI.
+Use one SQLite file per environment through Prisma. IDs are autoincrementing integers represented as JavaScript `number` values by the Prisma client. Store datetimes as UTC through Prisma and convert to the Settings timezone in the UI.
 
 ### `admins`
 
@@ -605,7 +603,7 @@ Store datetimes as **UTC** `DATETIME(3)`; convert to Settings timezone in the UI
 | created_at | DATETIME(3) | |
 | updated_at | DATETIME(3) | |
 
-Do **not** store expiration interval, timezone, or tier rules in MySQL. Those live in the program-settings JSON file (§8.9).
+Do **not** store expiration interval, timezone, or tier rules in SQLite. Those live in the program-settings JSON file (§8.9).
 
 ### `members`
 
@@ -697,7 +695,7 @@ ledger_entries 1──* lot_consumptions
 
 - Available points → §8.1  
 - All-time earned / redeemed / expired → §8.1.1  
-- Next expiration → min `expires_at` among spendable lots; amount → sum remaining whose calendar **date** in the program timezone equals that min’s date (convert in the app; MySQL 5.7 has no `AT TIME ZONE`)
+- Next expiration → min `expires_at` among spendable lots; amount → sum remaining whose calendar **date** in the program timezone equals that min’s date (convert in the app)
 - Current tier + qualifying points → §8.8 using program-settings `tiers`
 
 If you cache balances on `members`, update them in the same transaction as lot changes **or** do not cache.
@@ -809,9 +807,9 @@ Run via cron, systemd timer, or a worker (`node-cron` is fine for v1 on one box)
 | Layer | Choice |
 |-------|--------|
 | App | Next.js (App Router) + TypeScript |
-| Members / ledger / admins | **MySQL 5.7.40** locally (Homebrew `mysql@5.7`). Cloud MySQL 5.7 if offered, else **8.0** with **5.7-safe SQL** |
+| Members / ledger / admins | **SQLite**, one database file per environment |
 | Program settings | JSON file per environment (§8.9) |
-| ORM | Prisma (`provider = "mysql"`, 5.7-compatible) |
+| ORM | Prisma (`provider = "sqlite"`) |
 | Auth | Session cookie + bcrypt |
 | Public metadata | `GET /api/meta` (§10.1) |
 | Expire job | ~1 min (`node-cron` on the web process is OK) |
@@ -821,11 +819,11 @@ Run via cron, systemd timer, or a worker (`node-cron` is fine for v1 on one box)
 | | Localhost | Production | Staging |
 |--|-----------|------------|---------|
 | URL | `http://localhost:3000` | `APP_PUBLIC_URL` | different public URL |
-| MySQL | 5.7.40 on this Mac | `points_prod` | `points_staging` |
+| SQLite | `.data/local/points-engine.db` | `.data/production/points-engine.db` | `.data/staging/points-engine.db` |
 | Settings file | `.data/local/program-settings.json` | `.data/production/program-settings.json` | `.data/staging/program-settings.json` |
 | Demo members | Optional | No (superadmin only) | Yes if `SEED_DEMO_DATA=true` |
 
-**Cloudera AI Workbench:** two Applications (two public subdomains / URLs), one MySQL server with **two databases**, two settings files. Workbench does not provide MySQL.
+**Cloudera AI Workbench:** two Applications (two public subdomains / URLs), two SQLite files in the shared project filesystem, and two settings files. No external database server is required.
 
 `GIT_TAG` / `GIT_SHA` / `APP_VERSION` are set **at deploy** (e.g. GitHub Action when pushing tag `v1.0.0`). `/api/meta` returns those values.
 
@@ -850,7 +848,7 @@ Run via cron, systemd timer, or a worker (`node-cron` is fine for v1 on one box)
 15. Unauthenticated HTML users only see **Login**. There is no sign-up. `GET /api/meta` remains public.
 16. A superadmin or an admin can create another **admin** on Admins and set that password. Only a superadmin can create a superadmin.
 17. Settings **Update password** changes the signed-in user’s password and requires the current password. **Set password** on Admins works for **admin** accounts only — never for a superadmin (403).
-18. **Save settings** writes this environment’s program-settings JSON file. MySQL is not the source of truth for expiration or tiers.
+18. **Save settings** writes this environment’s program-settings JSON file. SQLite is not the source of truth for expiration or tiers.
 19. `curl -sS $APP_PUBLIC_URL/api/meta` with **no cookie** returns `environment`, `gitTag`/`version`/`gitSha` (or JSON `null` if unset), and `settings` equal to the current file.
 20. Production and staging are two public URLs with different DBs and settings files.
 
@@ -881,6 +879,6 @@ Chat-locked items are already in §4 **Your decision**. Remaining optional polis
 
 1. Q6 catalog names / default points.
 2. Extra expiry buckets on Profile (v1 = next event only).
-3. Exact Cloudera Application subdomains and the MySQL host the engines will use.
+3. Exact Cloudera Application subdomains.
 
 Wireframes: Login, Admins, Create member, Redeem, range filters, change password — canvas beside chat if present.

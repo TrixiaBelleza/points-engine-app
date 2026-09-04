@@ -34,13 +34,13 @@ It will then drive **staging** (`APP_PUBLIC_URL` of the staging instance). Plan 
 ## Stack
 
 - Next.js (App Router) + TypeScript + Prisma
-- **MySQL 5.7.40** — this is what is installed on the author’s Mac (`mysql Ver 14.14 Distrib 5.7.40`, Homebrew `mysql@5.7` at `/usr/local/opt/mysql@5.7`). Develop and migrate against that. **Do not use MySQL 8-only SQL** (no CTEs, window functions, `CHECK` constraints, `utf8mb4_0900_*` collations, or `RETURNING`). `DATETIME(3)` is fine (5.6.4+). Prisma `provider = "mysql"`; pick a Prisma version that still supports 5.7.
-- Local default DB URL: `mysql://...@127.0.0.1:3306/...` using that 5.7 server.
+- **SQLite** through Prisma (`provider = "sqlite"`). Each environment uses a separate database file under `.data/`.
+- Local default DB URL: `file:../.data/local/points-engine.db` (resolved relative to `prisma/schema.prisma`).
 - Session cookie auth + bcrypt (SPEC §8.0)
-- **JSON file** for program settings per environment (not MySQL)
+- **JSON file** for program settings per environment (not SQLite)
 - Expire job: 1-minute cron (in-process `node-cron` on the web process is OK for this size; document it)
 
-Same git repo. Prod and staging use **different databases** and **different settings files**. They may share **one** MySQL *server*.
+Same git repo. Prod and staging use **different SQLite files** and **different settings files** in the shared project filesystem.
 
 ## Where it runs (Cloudera AI Workbench)
 
@@ -50,17 +50,17 @@ Deploy as **two Cloudera AI Workbench Applications** (long-running web apps). No
 |-------|--------|
 | Next.js app × 2 public URLs | Two Applications, each with its own subdomain. Start script: `scripts/cloudera-start.py` → binds `127.0.0.1:$CDSW_APP_PORT` |
 | Program settings JSON | Instance filesystem: `.data/production/program-settings.json` and `.data/staging/program-settings.json` |
-| MySQL | **One** MySQL server the engines can reach, **two databases** (`points_prod`, `points_staging`). Workbench does not provide MySQL. |
+| SQLite | Two files: `.data/production/points-engine.db` and `.data/staging/points-engine.db`. No external database server. |
 
 **Required layout:**
 
-- Two Application engines, two `APP_PUBLIC_URL`s, two `DATABASE_URL`s, two settings files, two `SESSION_SECRET`s
+- Two Application engines, two `APP_PUBLIC_URL`s, two SQLite `DATABASE_URL`s, two settings files, two `SESSION_SECRET`s
 - Do **not** run one Next.js process with a toggle
 - If both Applications share one Cloudera project, they share the filesystem — keep the per-`APP_ENV` settings paths (or set distinct `SETTINGS_FILE`s)
 
 ## Program settings (JSON file)
 
-**Source of truth:** one JSON file per environment on that instance. Settings UI reads/writes this file. Cache in memory with short TTL if you want; do not persist program settings as the source of truth in MySQL.
+**Source of truth:** one JSON file per environment on that instance. Settings UI reads/writes this file. Cache in memory with short TTL if you want; do not persist program settings as the source of truth in SQLite.
 
 Local: `.data/local/program-settings.json` (never use prod/staging files on the laptop)
 Prod: `.data/production/program-settings.json`
@@ -149,9 +149,8 @@ SEED_DEMO_DATA=false
 
 ## Deploy
 
-1. Implement locally against **this Mac’s MySQL 5.7.40**.
-2. Create **one** MySQL server (5.7 preferred, 8.0 OK if SQL stays 5.7-safe) with databases `points_prod` and `points_staging`.
-3. Create **two** Cloudera AI Applications from this repo (`scripts/cloudera-start.py`), each with its own subdomain, env, database, and settings file.
+1. Implement locally using the SQLite database in `.data/local/`.
+2. Create **two** Cloudera AI Applications from this repo (`scripts/cloudera-start.py`), each with its own subdomain, env, SQLite file, and settings file.
 4. Set `GIT_TAG` / `GIT_SHA` / `APP_VERSION` from the git tag you deploy (tag prod, e.g. `v1.0.0`; staging may be the same commit or a later one — **meta must tell the truth**).
 5. Verify in a browser (not just screenshots): login, create member, Create Activity, redeem, settings save (JSON file updates), `/api/meta` JSON in an incognito tab with no cookie.
 6. Put the two public URLs in `README.md`.

@@ -13,7 +13,7 @@ export const POST = handle(async (req, ctx: { params: Promise<{ id: string }> })
     occurredAt?: string;
     note?: string;
   }>(req);
-  const member = await createActivity(BigInt(id), session, {
+  const member = await createActivity(Number(id), session, {
     activityTypeId: Number(body.activityTypeId),
     points: Number(body.points),
     occurredAt: body.occurredAt ?? "",

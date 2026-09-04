@@ -61,9 +61,19 @@ if [[ ! -d node_modules ]]; then
   npm ci
 fi
 
+if [[ "${DATABASE_URL:-}" == file:* ]]; then
+  db_path="${DATABASE_URL#file:}"
+  db_path="${db_path%%\?*}"
+  if [[ "${db_path}" != /* ]]; then
+    # Prisma resolves relative SQLite URLs from the schema directory.
+    db_path="${ROOT}/prisma/${db_path}"
+  fi
+  mkdir -p "$(dirname "${db_path}")"
+fi
+
 npx prisma generate
 
-if [[ "${PRISMA_DB_PUSH:-}" == "true" ]]; then
+if [[ "${DATABASE_URL:-}" == file:* ]] || [[ "${PRISMA_DB_PUSH:-}" == "true" ]]; then
   npx prisma db push
 fi
 

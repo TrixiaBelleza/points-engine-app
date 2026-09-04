@@ -11,7 +11,7 @@ export const POST = handle(
       throw new HttpError(404, "Redemption not found.");
     }
     const body = await readJson<{ amount?: number }>(req);
-    const member = await cancelRedeem(BigInt(id), BigInt(ledgerId), session, {
+    const member = await cancelRedeem(Number(id), Number(ledgerId), session, {
       amount: Number(body.amount),
     });
     return json({ member });

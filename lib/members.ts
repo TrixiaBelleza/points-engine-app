@@ -1,4 +1,3 @@
-import { Prisma } from "@prisma/client";
 import { prisma } from "./db";
 import { HttpError } from "./http";
 import { computeExpiresAt, localDateKey, lookbackThreshold, parseOccurredAt } from "./expiration";
@@ -62,13 +61,13 @@ export async function createMember(nameInput: string, contactInput: string) {
   }
 }
 
-export async function getMemberOrThrow(id: bigint) {
+export async function getMemberOrThrow(id: number) {
   const member = await prisma.member.findUnique({ where: { id } });
   if (!member) throw new HttpError(404, "Member not found.");
   return member;
 }
 
-export async function getMemberSnapshot(memberId: bigint) {
+export async function getMemberSnapshot(memberId: number) {
   const member = await getMemberOrThrow(memberId);
   const settings = await getProgramSettings();
   const now = new Date();
@@ -177,7 +176,7 @@ export function nextExpirationFromLots(
 }
 
 export async function updateMember(
-  memberId: bigint,
+  memberId: number,
   input: { name?: string; contactNumber?: string; status?: "active" | "inactive" },
 ) {
   const data: { name?: string; contactNumber?: string; status?: "active" | "inactive" } = {};
@@ -205,7 +204,7 @@ export function rangeThreshold(range: HistoryRange, now: Date): Date | null {
   return lookbackThreshold(now, period);
 }
 
-export async function getHistory(memberId: bigint, range: HistoryRange, page = 1) {
+export async function getHistory(memberId: number, range: HistoryRange, page = 1) {
   await getMemberOrThrow(memberId);
   const settings = await getProgramSettings();
   const now = new Date();
@@ -356,7 +355,7 @@ export async function seedActivityTypes() {
 }
 
 export async function createActivity(
-  memberId: bigint,
+  memberId: number,
   actor: Session,
   input: { activityTypeId: number; points: number; occurredAt: string; note?: string },
 ) {
@@ -369,7 +368,7 @@ export async function createActivity(
     throw new HttpError(400, "Points must be an integer of at least 1.");
   }
   const activityType = await prisma.activityType.findFirst({
-    where: { id: BigInt(input.activityTypeId), isActive: true },
+    where: { id: input.activityTypeId, isActive: true },
   });
   if (!activityType) throw new HttpError(400, "Choose an activity type.");
   const settings = await getProgramSettings();
@@ -385,7 +384,7 @@ export async function createActivity(
         points,
         occurredAt,
         note,
-        createdByAdminId: BigInt(actor.adminId),
+        createdByAdminId: actor.adminId,
       },
     });
     await tx.ledgerEntry.create({
@@ -396,7 +395,7 @@ export async function createActivity(
         occurredAt,
         activityId: activity.id,
         note,
-        createdByAdminId: BigInt(actor.adminId),
+        createdByAdminId: actor.adminId,
       },
     });
     await tx.pointLot.create({
@@ -416,7 +415,7 @@ export async function createActivity(
 }
 
 export async function redeemPoints(
-  memberId: bigint,
+  memberId: number,
   actor: Session,
   input: { amount: number; occurredAt: string; note?: string },
 ) {
@@ -435,20 +434,18 @@ export async function redeemPoints(
 
   await prisma.$transaction(
     async (tx) => {
-      await tx.$executeRaw`SELECT id FROM members WHERE id = ${memberId} FOR UPDATE`;
-      const lots = await tx.$queryRaw<
-        { id: bigint; remaining_amount: number; expires_at: Date }[]
-      >(Prisma.sql`
-        SELECT id, remaining_amount, expires_at
-        FROM point_lots
-        WHERE member_id = ${memberId}
-          AND remaining_amount > 0
-          AND expires_at > ${now}
-        ORDER BY expires_at ASC, id ASC
-        FOR UPDATE
-      `);
+      // SQLite serializes writes. Keep this workflow inside one interactive
+      // transaction rather than using MySQL's SELECT ... FOR UPDATE.
+      const lots = await tx.pointLot.findMany({
+        where: {
+          memberId,
+          remainingAmount: { gt: 0 },
+          expiresAt: { gt: now },
+        },
+        orderBy: [{ expiresAt: "asc" }, { id: "asc" }],
+      });
 
-      const available = lots.reduce((s, l) => s + Number(l.remaining_amount), 0);
+      const available = lots.reduce((s, l) => s + l.remainingAmount, 0);
       if (amount > available) {
         throw new HttpError(422, "Not enough points available.", { available });
       }
@@ -460,17 +457,17 @@ export async function redeemPoints(
           amount,
           occurredAt,
           note,
-          createdByAdminId: BigInt(actor.adminId),
+          createdByAdminId: actor.adminId,
         },
       });
 
       let left = amount;
       for (const lot of lots) {
         if (left <= 0) break;
-        const take = Math.min(left, Number(lot.remaining_amount));
+        const take = Math.min(left, lot.remainingAmount);
         await tx.pointLot.update({
           where: { id: lot.id },
-          data: { remainingAmount: Number(lot.remaining_amount) - take },
+          data: { remainingAmount: lot.remainingAmount - take },
         });
         await tx.lotConsumption.create({
           data: { lotId: lot.id, ledgerEntryId: ledger.id, amount: take },
@@ -481,15 +478,15 @@ export async function redeemPoints(
         throw new HttpError(422, "Not enough points available.");
       }
     },
-    { isolationLevel: "ReadCommitted", timeout: 15000 },
+    { timeout: 15000 },
   );
 
   return getMemberSnapshot(memberId);
 }
 
 export async function cancelEarn(
-  memberId: bigint,
-  activityId: bigint,
+  memberId: number,
+  activityId: number,
   actor: Session,
   input: { amount: number },
 ) {
@@ -504,25 +501,13 @@ export async function cancelEarn(
 
   await prisma.$transaction(
     async (tx) => {
-      const lots = await tx.$queryRaw<
-        {
-          id: bigint;
-          original_amount: number;
-          remaining_amount: number;
-          cancelled_amount: number;
-          expires_at: Date;
-        }[]
-      >(Prisma.sql`
-        SELECT id, original_amount, remaining_amount, cancelled_amount, expires_at
-        FROM point_lots
-        WHERE member_id = ${memberId} AND activity_id = ${activityId}
-        FOR UPDATE
-      `);
-      if (lots.length === 0) throw new HttpError(404, "Earn activity not found.");
+      const lot = await tx.pointLot.findFirst({
+        where: { memberId, activityId },
+      });
+      if (!lot) throw new HttpError(404, "Earn activity not found.");
 
-      const lot = lots[0];
-      const remaining = Number(lot.remaining_amount);
-      if (lot.expires_at <= now) {
+      const remaining = lot.remainingAmount;
+      if (lot.expiresAt <= now) {
         throw new HttpError(422, "Expired points can no longer be cancelled.");
       }
       if (remaining <= 0) {
@@ -540,29 +525,29 @@ export async function cancelEarn(
           occurredAt: now,
           activityId,
           note: amount === remaining ? "Earn fully cancelled" : "Earn partially cancelled",
-          createdByAdminId: BigInt(actor.adminId),
+          createdByAdminId: actor.adminId,
         },
       });
       await tx.pointLot.update({
         where: { id: lot.id },
         data: {
           remainingAmount: remaining - amount,
-          cancelledAmount: Number(lot.cancelled_amount) + amount,
+          cancelledAmount: lot.cancelledAmount + amount,
         },
       });
       await tx.lotConsumption.create({
         data: { lotId: lot.id, ledgerEntryId: ledger.id, amount },
       });
     },
-    { isolationLevel: "ReadCommitted", timeout: 15000 },
+    { timeout: 15000 },
   );
 
   return getMemberSnapshot(memberId);
 }
 
 export async function cancelRedeem(
-  memberId: bigint,
-  redeemLedgerId: bigint,
+  memberId: number,
+  redeemLedgerId: number,
   actor: Session,
   input: { amount: number },
 ) {
@@ -577,7 +562,6 @@ export async function cancelRedeem(
 
   await prisma.$transaction(
     async (tx) => {
-      await tx.$executeRaw`SELECT id FROM members WHERE id = ${memberId} FOR UPDATE`;
       const redeem = await tx.ledgerEntry.findFirst({
         where: { id: redeemLedgerId, memberId, type: "REDEEM" },
         include: { consumptions: { include: { lot: true }, orderBy: { id: "desc" } } },
@@ -618,7 +602,7 @@ export async function cancelRedeem(
           occurredAt: now,
           sourceLedgerId: redeem.id,
           note: amount === leftover ? "Redemption fully cancelled" : "Redemption partially cancelled",
-          createdByAdminId: BigInt(actor.adminId),
+          createdByAdminId: actor.adminId,
         },
       });
 
@@ -630,23 +614,18 @@ export async function cancelRedeem(
         const unrestored = consumption.amount - alreadyRestored;
         if (unrestored <= 0) continue;
         const take = Math.min(left, unrestored);
-        const locked = await tx.$queryRaw<
-          { id: bigint; remaining_amount: number; restored_amount: number; expires_at: Date }[]
-        >(Prisma.sql`
-          SELECT id, remaining_amount, restored_amount, expires_at
-          FROM point_lots
-          WHERE id = ${consumption.lotId}
-          FOR UPDATE
-        `);
-        if (locked.length === 0) throw new HttpError(404, "Point lot not found.");
-        if (locked[0].expires_at <= now) {
+        const locked = await tx.pointLot.findUnique({
+          where: { id: consumption.lotId },
+        });
+        if (!locked) throw new HttpError(404, "Point lot not found.");
+        if (locked.expiresAt <= now) {
           throw new HttpError(422, "Redeemed points that have expired can no longer be cancelled.");
         }
         await tx.pointLot.update({
           where: { id: consumption.lotId },
           data: {
-            remainingAmount: Number(locked[0].remaining_amount) + take,
-            restoredAmount: Number(locked[0].restored_amount) + take,
+            remainingAmount: locked.remainingAmount + take,
+            restoredAmount: locked.restoredAmount + take,
           },
         });
         await tx.lotConsumption.create({
@@ -659,7 +638,7 @@ export async function cancelRedeem(
         throw new HttpError(422, "Could not restore the cancelled redemption onto lots.");
       }
     },
-    { isolationLevel: "ReadCommitted", timeout: 15000 },
+    { timeout: 15000 },
   );
 
   return getMemberSnapshot(memberId);
@@ -667,7 +646,7 @@ export async function cancelRedeem(
 
 export async function expireDueLots(opts?: {
   now?: Date;
-  memberId?: bigint;
+  memberId?: number;
   createdByAdminId?: number;
 }): Promise<{ lotsPosted: number; pointsExpired: number }> {
   const now = opts?.now ?? new Date();
@@ -683,27 +662,19 @@ export async function expireDueLots(opts?: {
   let pointsExpired = 0;
   for (const lot of due) {
     await prisma.$transaction(async (tx) => {
-      const locked = await tx.$queryRaw<
-        {
-          id: bigint;
-          remaining_amount: number;
-          cancelled_amount: number;
-          expires_at: Date;
-        }[]
-      >(
-        Prisma.sql`
-          SELECT id, remaining_amount, cancelled_amount, expires_at
-          FROM point_lots
-          WHERE id = ${lot.id} AND remaining_amount > 0 AND expires_at <= ${now}
-          FOR UPDATE
-        `,
-      );
-      if (locked.length === 0) return;
-      const remaining = Number(locked[0].remaining_amount);
+      const locked = await tx.pointLot.findFirst({
+        where: {
+          id: lot.id,
+          remainingAmount: { gt: 0 },
+          expiresAt: { lte: now },
+        },
+      });
+      if (!locked) return;
+      const remaining = locked.remainingAmount;
       if (remaining <= 0) return;
       const amountToExpire = expirationAmount({
         remainingAmount: remaining,
-        cancelledAmount: Number(locked[0].cancelled_amount),
+        cancelledAmount: locked.cancelledAmount,
       });
       if (amountToExpire <= 0) return;
       const ledger = await tx.ledgerEntry.create({
@@ -713,7 +684,7 @@ export async function expireDueLots(opts?: {
           amount: amountToExpire,
           occurredAt: lot.expiresAt,
           note: "Points expired",
-          createdByAdminId: opts?.createdByAdminId ? BigInt(opts.createdByAdminId) : null,
+          createdByAdminId: opts?.createdByAdminId ?? null,
         },
       });
       await tx.lotConsumption.create({
@@ -730,7 +701,7 @@ export async function expireDueLots(opts?: {
   return { lotsPosted, pointsExpired };
 }
 
-export async function expireMemberLots(memberId: bigint, session: Session) {
+export async function expireMemberLots(memberId: number, session: Session) {
   await getMemberOrThrow(memberId);
   const result = await expireDueLots({ memberId, createdByAdminId: session.adminId });
   const member = await getMemberSnapshot(memberId);

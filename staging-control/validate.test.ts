@@ -64,7 +64,7 @@ describe("parseSetupBody", () => {
   it("rejects unknown change fields and env keys", () => {
     const parsed = parseSetupBody({
       request_id: "req-5",
-      changes: { enable_cancel_earn: true, DATABASE_URL: "mysql://x" },
+      changes: { enable_cancel_earn: true, DATABASE_URL: "file:forbidden.db" },
     });
     expect(parsed.ok).toBe(false);
     if (parsed.ok) return;

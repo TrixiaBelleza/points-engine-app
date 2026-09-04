@@ -6,7 +6,7 @@ import { getProgramSettings } from "@/lib/settings";
 export default async function HistoryPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   if (!/^\d+$/.test(id)) notFound();
-  const memberId = BigInt(id);
+  const memberId = Number(id);
   const [member, history, activityTypes, settings] = await Promise.all([
     getMemberSnapshot(memberId),
     getHistory(memberId, "3m", 1),

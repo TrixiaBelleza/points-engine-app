@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Create two local MySQL databases and env files for Mac + Cloudflare Tunnel.
+# Create two local SQLite-backed env files for Mac + Cloudflare Tunnel.
 set -euo pipefail
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/lib.sh"
@@ -21,16 +21,7 @@ write_env() {
   echo "Wrote ${dest}"
 }
 
-if ! "${MYSQL}" -h 127.0.0.1 -u root -e "SELECT 1" >/dev/null 2>&1; then
-  echo "Cannot connect to MySQL 5.7 at 127.0.0.1 as root." >&2
-  echo "Start it with: /usr/local/opt/mysql@5.7/bin/mysql.server start" >&2
-  exit 1
-fi
-
-"${MYSQL}" -h 127.0.0.1 -u root <<'SQL'
-CREATE DATABASE IF NOT EXISTS points_prod CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-CREATE DATABASE IF NOT EXISTS points_staging CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-SQL
+mkdir -p "${ROOT}/.data/production" "${ROOT}/.data/staging"
 
 write_control_env() {
   local dest="${DEPLOY}/staging-control.env"
@@ -55,12 +46,12 @@ if [[ ! -d node_modules ]]; then
   npm ci
 fi
 
-echo "Pushing schema + seeding production (no demo members)..."
+echo "Creating schema + seeding production (no demo members)..."
 set -a && source "${DEPLOY}/prod.env" && set +a
 npx prisma db push
 npx prisma db seed
 
-echo "Pushing schema + seeding staging (demo members)..."
+echo "Creating schema + seeding staging (demo members)..."
 set -a && source "${DEPLOY}/staging.env" && set +a
 npx prisma db push
 npx prisma db seed
