@@ -84,11 +84,50 @@ See `.env.example`. Production and staging each need their own `DATABASE_URL`, `
 | `ENABLE_CANCEL_EARN` | `true` / `false`. Unset = enabled. Staging should set `false` |
 | `ENABLE_CANCEL_REDEEM` | `true` / `false`. Unset = enabled. Staging should set `false` |
 | `SEED_DEMO_DATA` | `true` only for local/staging |
+| `STAGING_CONTROL_TOKEN` | Bearer token for the Staging Control API (`127.0.0.1:3100`). Set in `deploy/mac-cloudflare/staging-control.env`, not in the Next.js app env |
 | `APP_VERSION` / `GIT_TAG` / `GIT_SHA` / `DEPLOYED_AT` | Injected at deploy |
 
 ## Expire job
 
 `expire-lots` runs every minute inside the Next.js Node process (`lib/expire-job.ts`, started on boot). Balance truth never waits on the job: lots with `expires_at <= now` are not spendable even before the `EXPIRE` row is written.
+
+## Local prod + staging (Mac + Cloudflare Tunnel)
+
+When you do not have Cloudera yet, run two instances on this Mac and publish them with `cloudflared`. See [`deploy/mac-cloudflare/README.md`](deploy/mac-cloudflare/README.md).
+
+```bash
+npm run build
+bash scripts/mac-cloudflare/start-prod.sh              # 127.0.0.1:3000
+bash scripts/mac-cloudflare/start-staging.sh           # 127.0.0.1:3001
+bash scripts/mac-cloudflare/start-staging-control.sh   # 127.0.0.1:3100
+bash scripts/mac-cloudflare/tunnel.sh prod
+bash scripts/mac-cloudflare/tunnel.sh staging
+bash scripts/mac-cloudflare/tunnel.sh control
+```
+
+Equivalent npm script for the control service: `npm run start:staging-control` (or `npm run staging-control` if `STAGING_CONTROL_TOKEN` is already in the environment).
+
+## Staging Control API
+
+A separate Node service for the Ready, Set, Repro! Environment Setup Agent. It binds **only** to `127.0.0.1:3100` and can change Staging **program settings** (expiration interval, timezone, tiers) and the two Staging **feature flags** (`ENABLE_CANCEL_EARN`, `ENABLE_CANCEL_REDEEM`). It never reads, writes, restarts, or calls Production. Secrets and bind settings in `.env` (`DATABASE_URL`, `SESSION_SECRET`, `HOST`, `PORT`, `APP_ENV`, passwords) are not writable.
+
+Auth: `Authorization: Bearer $STAGING_CONTROL_TOKEN` from `deploy/mac-cloudflare/staging-control.env` (gitignored). Copy the example file and set a long random token — do not commit a real token.
+
+```bash
+# Token from deploy/mac-cloudflare/staging-control.env (never commit this file)
+TOKEN="$(grep '^STAGING_CONTROL_TOKEN=' deploy/mac-cloudflare/staging-control.env | cut -d= -f2-)"
+
+curl -sS -H "Authorization: Bearer ${TOKEN}" http://127.0.0.1:3100/health
+
+curl -sS -H "Authorization: Bearer ${TOKEN}" http://127.0.0.1:3100/status
+
+curl -sS -H "Authorization: Bearer ${TOKEN}" \
+  -H "Content-Type: application/json" \
+  -d '{"request_id":"manual-dry-run-001","dry_run":true,"changes":{"enable_cancel_earn":true,"expiration_interval":"1_year"}}' \
+  http://127.0.0.1:3100/setup
+```
+
+`dry_run: true` does not write files or restart Staging. A real `POST /setup` (no dry run) updates `deploy/mac-cloudflare/staging.env` and `.data/staging/program-settings.json`, restarts Staging via a fixed internal script, waits for `http://127.0.0.1:3001/health`, then returns staging `/api/meta`. There is no generic shell endpoint. The control Cloudflare hostname changes on every `cloudflared` restart. Never put `STAGING_CONTROL_TOKEN` in a URL, commit, or log.
 
 ## Deploy on Cloudera AI (prod + staging)
 

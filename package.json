@@ -7,6 +7,8 @@
     "build": "prisma generate && next build",
     "start": "next start",
     "start:cloudera": "bash scripts/cloudera-start.sh",
+    "staging-control": "tsx staging-control/server.ts",
+    "start:staging-control": "bash scripts/mac-cloudflare/start-staging-control.sh",
     "lint": "next lint",
     "test": "vitest run",
     "db:push": "prisma db push",
